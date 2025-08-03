@@ -1,0 +1,52 @@
+version: '3.8'
+
+services:
+  tv-playlist-cleaner:
+    build: .
+    container_name: tv-playlist-cleaner
+    volumes:
+      # Monter le répertoire courant pour accéder aux playlists générées
+      - ./:/app/data
+      # Volume pour les playlists de sortie
+      - ./output:/app/output
+    environment:
+      - PYTHONUNBUFFERED=1
+    working_dir: /app
+    # Commandes par défaut pour différents scripts
+    command: ["cleaner.py"]
+    
+  # Service pour le script de configuration
+  cleaner-config:
+    build: .
+    container_name: tv-playlist-cleaner-config
+    volumes:
+      - ./:/app/data
+      - ./output:/app/output
+    environment:
+      - PYTHONUNBUFFERED=1
+    working_dir: /app
+    command: ["cleaner_config.py", "french", "--direct-only"]
+    
+  # Service pour le script TNT
+  cleaner-tnt:
+    build: .
+    container_name: tv-playlist-cleaner-tnt
+    volumes:
+      - ./:/app/data
+      - ./output:/app/output
+    environment:
+      - PYTHONUNBUFFERED=1
+    working_dir: /app
+    command: ["cleaner_tnt.py", "--direct-only"]
+    
+  # Service pour le script avancé
+  cleaner-advanced:
+    build: .
+    container_name: tv-playlist-cleaner-advanced
+    volumes:
+      - ./:/app/data
+      - ./output:/app/output
+    environment:
+      - PYTHONUNBUFFERED=1
+    working_dir: /app
+    command: ["cleaner_advanced.py", "--direct-only", "--workers", "20"] 
