@@ -55,7 +55,8 @@ def main():
     # 4. Test rapide d'une playlist
     if m3u_files:
         run_command(
-            ["python", "-m", "pytest", "tests/", "-v"], f"Tests de la playlist {m3u_files[0]}"
+            ["python", "-m", "pytest", "tests/", "-v"],
+            f"Tests de la playlist {m3u_files[0]}",
         )
 
     print("\n" + "=" * 60)
