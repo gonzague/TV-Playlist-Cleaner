@@ -26,14 +26,14 @@ jobs:
       run: |
         python -m pip install --upgrade pip
         pip install -r requirements.txt
-        pip install pytest pytest-cov flake8 black
+        pip install pytest pytest-cov flake8 black bandit
 
     - name: 🔍 Lint with flake8
       run: |
         # stop the build if there are Python syntax errors or undefined names
         flake8 . --count --select=E9,F63,F7,F82 --show-source --statistics
         # exit-zero treats all errors as warnings
-        flake8 . --count --exit-zero --max-complexity=10 --max-line-length=79 --statistics
+        flake8 . --count --exit-zero --max-complexity=10 --max-line-length=88 --statistics
 
     - name: 🎨 Format check with black
       run: |
@@ -62,9 +62,14 @@ jobs:
       with:
         python-version: "3.11"
 
+    - name: 📦 Install dependencies
+      run: |
+        python -m pip install --upgrade pip
+        pip install -r requirements.txt
+        pip install bandit
+
     - name: 🔒 Security check with bandit
       run: |
-        pip install bandit
         bandit -r . -f json -o bandit-report.json || true
 
     - name: 📋 Upload security report
@@ -73,9 +78,34 @@ jobs:
         name: security-report
         path: bandit-report.json
 
-  build:
+  docker:
     runs-on: ubuntu-latest
     needs: [test, security]
+    steps:
+    - name: 📥 Checkout code
+      uses: actions/checkout@v4
+
+    - name: 🐳 Set up Docker Buildx
+      uses: docker/setup-buildx-action@v3
+
+    - name: 🏗️ Build Docker image
+      run: |
+        docker build -t tv-playlist-cleaner .
+
+    - name: 🧪 Test Docker image
+      run: |
+        # Test that the image can be run
+        docker run --rm tv-playlist-cleaner python -c "import cleaner; print('Docker image works')"
+        
+        # Test curl availability
+        docker run --rm tv-playlist-cleaner curl --version
+        
+        # Test dependencies
+        docker run --rm tv-playlist-cleaner python -c "import requests, tqdm; print('Dependencies OK')"
+
+  build:
+    runs-on: ubuntu-latest
+    needs: [test, security, docker]
     if: github.event_name == 'push' && github.ref == 'refs/heads/main'
     
     steps:
@@ -91,10 +121,11 @@ jobs:
       run: |
         python -m pip install --upgrade pip
         pip install -r requirements.txt
+        pip install build wheel
 
     - name: 🏗️ Build package
       run: |
-        python setup.py sdist bdist_wheel
+        python -m build
 
     - name: 📤 Upload build artifacts
       uses: actions/upload-artifact@v3
@@ -104,7 +135,7 @@ jobs:
 
   release:
     runs-on: ubuntu-latest
-    needs: [test, security, build]
+    needs: [test, security, docker, build]
     if: startsWith(github.ref, 'refs/tags/')
     
     steps:
@@ -120,10 +151,11 @@ jobs:
       run: |
         python -m pip install --upgrade pip
         pip install -r requirements.txt
+        pip install build wheel
 
     - name: 🏗️ Build package
       run: |
-        python setup.py sdist bdist_wheel
+        python -m build
 
     - name: 📤 Upload to PyPI
       uses: pypa/gh-action-pypi-publish@release/v1

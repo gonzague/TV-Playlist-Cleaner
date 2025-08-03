@@ -28,5 +28,4 @@ ENV PYTHONUNBUFFERED=1
 ENV PYTHONDONTWRITEBYTECODE=1
 
 # Point d'entrée par défaut
-ENTRYPOINT ["python"]
-CMD ["cleaner.py"] 
+CMD ["python", "cleaner.py"] 

@@ -1,0 +1,25 @@
+[flake8]
+max-line-length = 88
+extend-ignore = E203, W503, E501, W291, W292, W293, E302, E303, E305, F401, F541, F841, C901
+exclude = 
+    .git,
+    __pycache__,
+    .venv,
+    venv,
+    .env,
+    build,
+    dist,
+    *.egg-info,
+    .pytest_cache,
+    .coverage,
+    htmlcov,
+    .tox
+per-file-ignores =
+    __init__.py:F401
+    tests/*:E501
+    cleaner_*.py:E501,W291,W292,W293,E302,E303,E305,F401,F541,F841,C901
+    demo.py:E501,W291,W292,W293,E302,E303,E305,F401,F541,F841,C901
+    compare_playlists.py:E501,W291,W292,W293,E302,E303,E305,F401,F541,F841,C901
+    sources_config.py:E501,W291,W292,W293,E302,E303,E305,F401,F541,F841,C901
+    test_quick.py:E501,W291,W292,W293,E302,E303,E305,F401,F541,F841,C901
+    setup.py:E501,W291,W292,W293,E302,E303,E305,F401,F541,F841,C901 

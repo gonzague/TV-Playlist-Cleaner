@@ -1,0 +1,19 @@
+include README.md
+include LICENSE
+include requirements.txt
+include CHANGELOG.md
+include CONTRIBUTING.md
+include DOCKER.md
+include Dockerfile
+include docker-compose.yml
+include docker-run.sh
+include test-docker.sh
+include .dockerignore
+include pytest.ini
+include .flake8
+include pyproject.toml
+include .gitignore
+
+recursive-include tests *.py
+recursive-exclude * __pycache__
+recursive-exclude * *.py[co] 

@@ -68,7 +68,7 @@ fi
 
 # Test 2: Vérification des dépendances
 print_info "Test 2: Vérification des dépendances..."
-if docker run --rm tv-playlist-cleaner-test python -c "import requests, tqdm; print('Dépendances OK')"; then
+if docker run --rm tv-playlist-cleaner-test python -c "import requests, tqdm; print('Dépendances OK')" 2>/dev/null; then
     print_success "Dépendances Python installées"
 else
     print_error "Problème avec les dépendances Python"
