@@ -6,15 +6,20 @@ Setup script for TV Playlist Cleaner
 from setuptools import setup, find_packages
 import os
 
+
 # Lire le contenu du README
 def read_readme():
     with open("README.md", "r", encoding="utf-8") as fh:
         return fh.read()
 
+
 # Lire les requirements
 def read_requirements():
     with open("requirements.txt", "r", encoding="utf-8") as fh:
-        return [line.strip() for line in fh if line.strip() and not line.startswith("#")]
+        return [
+            line.strip() for line in fh if line.strip() and not line.startswith("#")
+        ]
+
 
 setup(
     name="tv-playlist-cleaner",
@@ -63,4 +68,4 @@ setup(
         "Source": "https://github.com/yourusername/TV-playlist-cleaner",
         "Documentation": "https://github.com/yourusername/TV-playlist-cleaner#readme",
     },
-) 
+)

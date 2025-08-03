@@ -18,6 +18,15 @@ Un script Python avancé pour nettoyer, filtrer et optimiser les playlists M3U e
 - 🎛️ **Configuration flexible** : Catégories prédéfinies et options avancées
 - 🇫🇷 **Support TNT françaises** : Script spécialisé pour les 25 chaînes principales
 
+## ⚠️ Avertissement Important
+
+**Ce projet est un outil de traitement de playlists M3U uniquement. Nous n'hébergeons, ne proposons, ni ne distribuons aucune playlist ou contenu vidéo. Cet outil fonctionne exclusivement avec les playlists que vous lui fournissez, certaines sont listées pour l'exemple.**
+
+- 🔧 **Outil de traitement** : Ce script nettoie et optimise vos propres playlists M3U
+- 📋 **Sources externes** : Les URLs de playlists référencées pointent vers des sources tierces
+- 🚫 **Aucun contenu** : Aucun flux vidéo ou playlist n'est hébergé par ce projet
+- ⚖️ **Responsabilité** : L'utilisateur est responsable de la légalité et de l'utilisation des playlists traitées
+
 ## 📊 Résultats Performants
 
 | Métrique | Avant | Après | Amélioration |
@@ -68,8 +77,6 @@ pip install -r requirements.txt
 # Générer une playlist française (recommandé pour débuter)
 python cleaner_config.py french --direct-only
 
-# Tester la playlist générée
-python test_quick.py
 ```
 
 ### Option 2 : Avec Docker (Recommandé)
@@ -85,8 +92,6 @@ cd TV-playlist-cleaner
 # Générer une playlist française
 ./docker-run.sh config french --direct-only
 
-# Tester la playlist générée
-./docker-run.sh run test_quick.py
 ```
 
 📖 **Documentation Docker complète** : [DOCKER.md](DOCKER.md)
@@ -139,8 +144,6 @@ python demo.py
 # Comparaison de playlists
 python compare_playlists.py playlist1.m3u playlist2.m3u
 
-# Test rapide d'une playlist
-python test_quick.py
 
 # Configuration des sources
 python sources_config.py
@@ -239,14 +242,14 @@ Test des flux: 100%|████████████████████
 
 ### Scripts Utilitaires
 - `sources_config.py` - Configuration des sources M3U par catégories
-- `test_stream.py` - Script de diagnostic curl
-- `test_quick.py` - Test rapide de la playlist filtrée
+- `tests/` - Tests unitaires 
 - `compare_playlists.py` - Comparaison et analyse de playlists
 - `demo.py` - Script de démonstration complète
 
-### Sources Supportées
+### Sources Supportées / Testées
 - **iptv-org** : Sources officielles par pays et catégories
 - **freeiptv** : Source communautaire avec flux français et internationaux
+- **paratv** : Source individuelle
 - **Catégories** : all, french, english, european, news, sports, movies, kids
 
 ## 🔧 Fonctionnalités Techniques
@@ -317,8 +320,8 @@ Ce projet est sous licence MIT. Voir le fichier [LICENSE](LICENSE) pour plus de 
 ## 🙏 Remerciements
 
 - [curl](https://curl.se/) pour l'analyse des flux vidéo
-- [iptv-org](https://iptv-org.github.io/) pour les sources de playlists
-- [ffmpeg](https://ffmpeg.org/) pour ffprobe
+- [iptv-org](https://iptv-org.github.io/) pour les sources de playlists et [paratv](https://github.com/Paradise-91/ParaTV)
+- [ffmpeg](https://ffmpeg.org/) pour ffprobe & l'incroyable FFMPEG bien sûr.
 
 ## 📞 Support
 

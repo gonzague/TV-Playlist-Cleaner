@@ -60,7 +60,7 @@ pip install -r requirements.txt
 
 ```bash
 # Testez votre playlist
-python test_quick.py
+python -m pytest tests/ -v
 
 # Testez avec différentes options
 python cleaner_config.py french --direct-only
@@ -169,7 +169,7 @@ python cleaner_advanced.py --direct-only
 python cleaner_tnt.py --direct-only
 
 # Test de validation
-python test_quick.py
+python -m pytest tests/ -v
 ```
 
 ### Tests Automatisés

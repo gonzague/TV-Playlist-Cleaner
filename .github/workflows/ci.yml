@@ -73,7 +73,7 @@ jobs:
         bandit -r . -f json -o bandit-report.json || true
 
     - name: 📋 Upload security report
-      uses: actions/upload-artifact@v3
+      uses: actions/upload-artifact@v4
       with:
         name: security-report
         path: bandit-report.json
@@ -128,7 +128,7 @@ jobs:
         python -m build
 
     - name: 📤 Upload build artifacts
-      uses: actions/upload-artifact@v3
+      uses: actions/upload-artifact@v4
       with:
         name: dist
         path: dist/
@@ -164,11 +164,10 @@ jobs:
         skip_existing: true
 
     - name: 🏷️ Create Release
-      uses: actions/create-release@v1
-      env:
-        GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      uses: softprops/action-gh-release@v1
       with:
-        tag_name: ${{ github.ref }}
-        release_name: Release ${{ github.ref }}
+        tag_name: ${{ github.ref_name }}
+        name: Release ${{ github.ref_name }}
         draft: false
-        prerelease: false 
+        prerelease: false
+        generate_release_notes: true 

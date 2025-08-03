@@ -29,7 +29,7 @@ Fixes #(issue)
 ```bash
 # Commandes de test utilisées
 python cleaner_config.py french --direct-only
-python test_quick.py
+python -m pytest tests/ -v
 ```
 
 ## 📋 Checklist
