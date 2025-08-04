@@ -4,7 +4,10 @@
 [![License](https://img.shields.io/badge/License-MIT-green.svg)](LICENSE)
 [![Status](https://img.shields.io/badge/Status-Active-brightgreen.svg)](https://github.com/yourusername/TV-playlist-cleaner)
 
+
 Un script Python avancé pour nettoyer, filtrer et optimiser les playlists M3U en utilisant curl et ffprobe pour détecter les flux valides et sélectionner automatiquement la meilleure qualité disponible.
+
+
 
 ## 🚀 Fonctionnalités
 
@@ -17,6 +20,16 @@ Un script Python avancé pour nettoyer, filtrer et optimiser les playlists M3U e
 - 📈 **Barre de progression** : Suivi en temps réel avec statistiques détaillées
 - 🎛️ **Configuration flexible** : Catégories prédéfinies et options avancées
 - 🇫🇷 **Support TNT françaises** : Script spécialisé pour les 25 chaînes principales
+
+---
+
+**🔗 Liens utiles :**
+- **Hébergez votre VPS & code chez** [Hetzner](https://go.gonzague.me/hetzner)
+- **J'ai créé  LogCentral, une plateforme de syslog cloud simple et abordable**: [jetez un oeil](https://go.gonzague.me/logcentral)
+- **Mes autres réseaux sociaux & projets**: [mon bento](https://go.gonzague.me/bento)
+- **Développé à l'aide de**: [Cursor](https://go.gonzague.me/cursor)
+
+---
 
 ## ⚠️ Avertissement Important
 
