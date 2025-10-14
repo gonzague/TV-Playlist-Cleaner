@@ -1,5 +1,8 @@
 # 📺 TV Playlist Cleaner
 
+<img width="1200" height="800" alt="TV Playlist cleaner-min" src="https://github.com/user-attachments/assets/114cd872-2f2a-4440-89a4-38b084ea23da" />
+
+
 [![Python](https://img.shields.io/badge/Python-3.8+-blue.svg)](https://www.python.org/downloads/)
 [![License](https://img.shields.io/badge/License-MIT-green.svg)](LICENSE)
 [![Status](https://img.shields.io/badge/Status-Active-brightgreen.svg)](https://github.com/yourusername/TV-playlist-cleaner)
