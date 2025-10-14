@@ -34,17 +34,17 @@ Le script `docker-run.sh` simplifie l'utilisation de Docker :
 
 # Exécuter un script spécifique
 ./docker-run.sh run cleaner.py
-./docker-run.sh run cleaner_advanced.py --direct-only
+./docker-run.sh run cleaner_advanced.py
 
 # Exécuter cleaner_config.py avec une catégorie
-./docker-run.sh config french --direct-only
+./docker-run.sh config french
 ./docker-run.sh config english --workers 20
 
 # Exécuter cleaner_tnt.py
-./docker-run.sh tnt --direct-only --workers 20
+./docker-run.sh tnt --workers 20
 
 # Exécuter cleaner_advanced.py
-./docker-run.sh advanced --direct-only --output ma_playlist.m3u
+./docker-run.sh advanced --workers 20 --output ma_playlist.m3u
 
 # Ouvrir un shell dans le conteneur
 ./docker-run.sh shell
@@ -72,17 +72,17 @@ docker run --rm -v "$(pwd):/app/data" -v "$(pwd)/output:/app/output" tv-playlist
 
 #### Script de Configuration
 ```bash
-docker run --rm -v "$(pwd):/app/data" -v "$(pwd)/output:/app/output" tv-playlist-cleaner cleaner_config.py french --direct-only
+docker run --rm -v "$(pwd):/app/data" -v "$(pwd)/output:/app/output" tv-playlist-cleaner cleaner_config.py french
 ```
 
 #### Script TNT
 ```bash
-docker run --rm -v "$(pwd):/app/data" -v "$(pwd)/output:/app/output" tv-playlist-cleaner cleaner_tnt.py --direct-only
+docker run --rm -v "$(pwd):/app/data" -v "$(pwd)/output:/app/output" tv-playlist-cleaner cleaner_tnt.py
 ```
 
 #### Script Avancé
 ```bash
-docker run --rm -v "$(pwd):/app/data" -v "$(pwd)/output:/app/output" tv-playlist-cleaner cleaner_advanced.py --direct-only --workers 20
+docker run --rm -v "$(pwd):/app/data" -v "$(pwd)/output:/app/output" tv-playlist-cleaner cleaner_advanced.py --workers 20
 ```
 
 ### Shell Interactif
@@ -111,10 +111,10 @@ docker-compose run --rm cleaner-advanced
 ### Exécution avec Arguments Personnalisés
 ```bash
 # Override la commande par défaut
-docker-compose run --rm tv-playlist-cleaner cleaner_config.py english --direct-only --workers 15
+docker-compose run --rm tv-playlist-cleaner cleaner_config.py english --workers 15
 
 # Script TNT avec options
-docker-compose run --rm cleaner-tnt --direct-only --workers 20 --output tnt_playlist.m3u
+docker-compose run --rm cleaner-tnt --workers 20 --output tnt_playlist.m3u
 ```
 
 ## 📁 Structure des Volumes
@@ -243,7 +243,7 @@ docker run --rm -it -v "$(pwd):/app/data" tv-playlist-cleaner /bin/sh
 ./docker-run.sh build
 
 # 2. Générer une playlist française
-./docker-run.sh config french --direct-only
+./docker-run.sh config french
 
 # 3. Vérifier le résultat
 ls -la output/
@@ -263,9 +263,9 @@ echo "🚀 Démarrage du processus..."
 ./docker-run.sh build
 
 # Générer différentes playlists
-./docker-run.sh config french --direct-only --output french_playlist.m3u
-./docker-run.sh config english --direct-only --output english_playlist.m3u
-./docker-run.sh tnt --direct-only --output tnt_playlist.m3u
+./docker-run.sh config french --output french_playlist.m3u
+./docker-run.sh config english --output english_playlist.m3u
+./docker-run.sh tnt --output tnt_playlist.m3u
 
 echo "✅ Processus terminé !"
 echo "📁 Playlists générées dans le dossier output/"

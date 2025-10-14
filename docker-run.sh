@@ -45,9 +45,9 @@ show_help() {
     echo "Examples:"
     echo "  $0 build"
     echo "  $0 run cleaner.py"
-    echo "  $0 config french --direct-only"
-    echo "  $0 tnt --direct-only --workers 20"
-    echo "  $0 advanced --direct-only --output ma_playlist.m3u"
+    echo "  $0 config french"
+    echo "  $0 tnt --workers 20"
+    echo "  $0 advanced --output ma_playlist.m3u"
 }
 
 # Fonction pour construire l'image

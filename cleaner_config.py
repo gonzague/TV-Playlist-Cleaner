@@ -21,14 +21,14 @@ def main():
 
         print(f"\n💡 Utilisation:")
         print(f"  python cleaner_config.py <catégorie> [options]")
-        print(f"  python cleaner_config.py french --direct-only")
+        print(f"  python cleaner_config.py french")
         print(f"  python cleaner_config.py english --workers 20")
         print(f"  python cleaner_config.py all --output playlist_complete.m3u")
 
         print(f"\n🔧 Options disponibles:")
-        print(f"  --direct-only     : Vérification directe uniquement (plus rapide)")
-        print(f"  --workers N       : Nombre de workers parallèles")
-        print(f"  --output FILE     : Fichier de sortie")
+        print(f"  --workers N       : Nombre de workers parallèles (défaut: 10)")
+        print(f"  --timeout N       : Timeout en secondes (défaut: 15)")
+        print(f"  --output FILE     : Fichier de sortie (défaut: filtered.m3u)")
         print(f"  --no-deduplication: Désactiver le dédoublonnage")
 
         return

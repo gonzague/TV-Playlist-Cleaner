@@ -62,8 +62,8 @@ uv pip install "requests>=2.25.0" "tqdm>=4.60.0" "pytest>=6.0" "pytest-cov>=2.0"
 python -m pytest tests/ -v
 
 # Testez avec différentes options
-python cleaner_config.py french --direct-only
-python cleaner_tnt.py --direct-only
+python cleaner_config.py french
+python cleaner_tnt.py
 ```
 
 ### 6. Commit et Push
@@ -164,10 +164,10 @@ chore: tâches de maintenance
 python cleaner.py
 
 # Test avancé
-python cleaner_advanced.py --direct-only
+python cleaner_advanced.py
 
 # Test TNT
-python cleaner_tnt.py --direct-only
+python cleaner_tnt.py
 
 # Test de validation
 python -m pytest tests/ -v

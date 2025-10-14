@@ -103,7 +103,7 @@ source .venv/bin/activate  # Sur Windows: .venv\Scripts\activate
 uv pip install "requests>=2.25.0" "tqdm>=4.60.0"
 
 # Générer une playlist française (recommandé pour débuter)
-python cleaner_config.py french --direct-only
+python cleaner_config.py french
 
 ```
 
@@ -118,7 +118,7 @@ cd TV-playlist-cleaner
 ./docker-run.sh build
 
 # Générer une playlist française
-./docker-run.sh config french --direct-only
+./docker-run.sh config french
 
 ```
 
@@ -133,7 +133,7 @@ cd TV-playlist-cleaner
 python cleaner_config.py
 
 # Utiliser une catégorie spécifique
-python cleaner_config.py french --direct-only
+python cleaner_config.py french
 python cleaner_config.py english --workers 20
 python cleaner_config.py all --output playlist_complete.m3u
 
@@ -144,20 +144,20 @@ python cleaner_config.py all --output playlist_complete.m3u
 
 ```bash
 # Générer une playlist avec uniquement les 25 chaînes TNT principales
-python cleaner_tnt.py --direct-only
+python cleaner_tnt.py
 
 # Options personnalisées
-python cleaner_tnt.py --direct-only --workers 20 --output tnt_playlist.m3u
+python cleaner_tnt.py --workers 20 --output tnt_playlist.m3u
 ```
 
 ### 🔧 Scripts Avancés
 
 ```bash
 # Script multi-sources avec dédoublonnage
-python cleaner_multi_source.py --direct-only
+python cleaner_multi_source.py
 
 # Script avancé avec options complètes
-python cleaner_advanced.py --direct-only --workers 20 --output ma_playlist.m3u
+python cleaner_advanced.py --workers 20 --output ma_playlist.m3u
 
 # Script de base
 python cleaner.py
@@ -183,7 +183,6 @@ python sources_config.py
 |--------|-------------|--------|
 | `--url` | URL de la playlist M3U | Playlist française |
 | `--output` | Fichier de sortie | `filtered.m3u` |
-| `--direct-only` | Utiliser seulement curl (plus rapide) | `False` |
 | `--workers` | Nombre de workers parallèles | `10` |
 | `--timeout` | Timeout en secondes | `15` |
 | `--no-deduplication` | Désactiver le dédoublonnage | `False` |
@@ -316,8 +315,8 @@ Le script continuera avec les flux valides.
 ### Performance
 Si le script est trop lent, vous pouvez :
 - Réduire le nombre de workers : `--workers 5`
-- Utiliser la vérification directe : `--direct-only`
 - Augmenter le timeout : `--timeout 30`
+- Utiliser moins de sources avec `cleaner_config.py`
 
 ## 📈 Avantages avec ffprobe
 
