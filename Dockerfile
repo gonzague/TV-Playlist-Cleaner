@@ -7,14 +7,14 @@ RUN apk add --no-cache \
     ffmpeg \
     && rm -rf /var/cache/apk/*
 
+# Installer UV
+COPY --from=ghcr.io/astral-sh/uv:latest /uv /usr/local/bin/uv
+
 # Définir le répertoire de travail
 WORKDIR /app
 
-# Copier les fichiers de dépendances
-COPY requirements.txt .
-
-# Installer les dépendances Python
-RUN pip install --no-cache-dir -r requirements.txt
+# Installer les dépendances Python avec UV
+RUN uv pip install --system "requests>=2.25.0" "tqdm>=4.60.0"
 
 # Copier le code source
 COPY *.py ./

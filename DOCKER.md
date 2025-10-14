@@ -135,8 +135,9 @@ mkdir -p output
 
 - **Image de base** : Python 3.11 Alpine (léger)
 - **Dépendances système** : curl, ffmpeg
+- **Gestionnaire de paquets** : UV (ultra-rapide)
 - **Sécurité** : Utilisateur non-root
-- **Performance** : Cache pip optimisé
+- **Performance** : Installation optimisée avec UV
 - **Taille** : ~150MB (vs ~1GB pour une image standard)
 
 ### Variables d'Environnement
@@ -156,8 +157,9 @@ RUN apk add --no-cache \
     git \
     && rm -rf /var/cache/apk/*
 
-# Installer des packages Python supplémentaires
-RUN pip install --no-cache-dir \
+# Installer UV et des packages Python supplémentaires
+COPY --from=ghcr.io/astral-sh/uv:latest /uv /usr/local/bin/uv
+RUN uv pip install --system \
     requests>=2.25.0 \
     tqdm>=4.60.0 \
     beautifulsoup4 \

@@ -37,17 +37,16 @@ git checkout -b fix/correction-bug
 ### 3. Configurez l'Environnement
 
 ```bash
-# Créez un environnement virtuel
-python -m venv venv
+# Installez UV (si pas déjà fait)
+# macOS/Linux:
+curl -LsSf https://astral.sh/uv/install.sh | sh
+# Windows:
+# powershell -c "irm https://astral.sh/uv/install.ps1 | iex"
 
-# Activez l'environnement virtuel
-# Sur Windows :
-venv\Scripts\activate
-# Sur macOS/Linux :
-source venv/bin/activate
-
-# Installez les dépendances
-pip install -r requirements.txt
+# Créez un environnement virtuel et installez les dépendances
+uv venv
+source .venv/bin/activate  # Sur Windows: .venv\Scripts\activate
+uv pip install "requests>=2.25.0" "tqdm>=4.60.0" "pytest>=6.0" "pytest-cov>=2.0" "flake8>=3.8" "black>=21.0" "bandit>=1.6"
 ```
 
 ### 4. Développez
@@ -93,7 +92,9 @@ git push origin feature/nouvelle-fonctionnalite
 ### Installation des Dépendances
 
 ```bash
-pip install -r requirements.txt
+uv venv
+source .venv/bin/activate  # Sur Windows: .venv\Scripts\activate
+uv pip install "requests>=2.25.0" "tqdm>=4.60.0" "pytest>=6.0" "pytest-cov>=2.0" "flake8>=3.8" "black>=21.0" "bandit>=1.6"
 ```
 
 ### Installation de curl
@@ -177,9 +178,7 @@ python -m pytest tests/ -v
 Si vous ajoutez des tests automatisés :
 
 ```bash
-# Installez pytest
-pip install pytest
-
+# pytest est déjà installé avec les dépendances dev
 # Lancez les tests
 pytest tests/
 ```

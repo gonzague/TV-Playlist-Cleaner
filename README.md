@@ -69,10 +69,23 @@ sudo apt install curl
 **Windows :**
 curl est inclus dans Windows 10 et versions ultérieures.
 
-### 2. Installer les dépendances Python
+### 2. Installer UV
 
+UV est le gestionnaire de paquets Python ultra-rapide que nous utilisons pour ce projet.
+
+**macOS et Linux :**
 ```bash
-pip install -r requirements.txt
+curl -LsSf https://astral.sh/uv/install.sh | sh
+```
+
+**Windows :**
+```powershell
+powershell -c "irm https://astral.sh/uv/install.ps1 | iex"
+```
+
+**Ou avec pip :**
+```bash
+pip install uv
 ```
 
 ## 🚀 Installation Rapide
@@ -84,8 +97,10 @@ pip install -r requirements.txt
 git clone https://github.com/yourusername/TV-playlist-cleaner.git
 cd TV-playlist-cleaner
 
-# Installer les dépendances
-pip install -r requirements.txt
+# Créer un environnement virtuel et installer les dépendances avec UV
+uv venv
+source .venv/bin/activate  # Sur Windows: .venv\Scripts\activate
+uv pip install "requests>=2.25.0" "tqdm>=4.60.0"
 
 # Générer une playlist française (recommandé pour débuter)
 python cleaner_config.py french --direct-only

@@ -1,6 +1,6 @@
 [build-system]
-requires = ["setuptools>=45", "wheel"]
-build-backend = "setuptools.build_meta"
+requires = ["hatchling"]
+build-backend = "hatchling.build"
 
 [project]
 name = "tv-playlist-cleaner"
@@ -112,4 +112,12 @@ exclude_lines = [
 
 [tool.bandit]
 exclude_dirs = ["tests"]
-skips = ["B101", "B601"] 
+skips = ["B101", "B601"]
+
+[tool.hatch.build.targets.wheel]
+only-include = ["*.py"]
+exclude = ["tests/*"]
+
+[tool.hatch.build.targets.sdist]
+only-include = ["*.py", "pyproject.toml"]
+exclude = ["tests/*"] 
