@@ -1,16 +1,46 @@
 #!/usr/bin/env python3
 """
-Script de comparaison des playlists M3U
+M3U playlist comparison script.
+
+Analyzes and compares multiple M3U playlists, showing statistics about
+channels, qualities, groups, and finding common/unique channels.
 """
 
 import re
+import os
+import sys
+import logging
+from pathlib import Path
 from collections import defaultdict
+from typing import List, Dict, Set, Optional, Tuple
+
+# Configure logging
+logging.basicConfig(level=logging.INFO, format='%(message)s')
+logger = logging.getLogger(__name__)
 
 
-def parse_playlist(filename):
-    """Parse une playlist M3U et retourne les statistiques."""
+def parse_playlist(filename: str) -> List[Dict[str, str]]:
+    """
+    Parse an M3U playlist and return channel information.
+
+    Args:
+        filename: Path to M3U playlist file
+
+    Returns:
+        List of channel dictionaries with name, quality, group, and URL
+
+    Example:
+        >>> channels = parse_playlist("test.m3u")
+        >>> len(channels) > 0
+        True
+    """
     try:
-        with open(filename, "r", encoding="utf-8") as f:
+        playlist_path = Path(filename)
+        if not playlist_path.exists():
+            logger.error(f"❌ Fichier {filename} non trouvé")
+            return []
+
+        with open(playlist_path, "r", encoding="utf-8") as f:
             content = f.read()
 
         lines = content.strip().splitlines()
@@ -34,131 +64,236 @@ def parse_playlist(filename):
                 group_match = re.search(r'group-title="([^"]+)"', info_line)
                 group = group_match.group(1) if group_match else "General"
 
-                channels.append(
-                    {
-                        "name": name,
-                        "quality": quality,
-                        "group": group,
-                        "url": url_lines[i].strip(),
-                    }
-                )
+                channels.append({
+                    "name": name,
+                    "quality": quality,
+                    "group": group,
+                    "url": url_lines[i].strip(),
+                })
 
+        logger.debug(f"Parsed {len(channels)} channels from {filename}")
         return channels
 
-    except FileNotFoundError:
-        print(f"❌ Fichier {filename} non trouvé")
+    except PermissionError:
+        logger.error(f"❌ Permission refusée pour lire {filename}")
+        return []
+    except UnicodeDecodeError:
+        logger.error(f"❌ Erreur d'encodage dans {filename}")
         return []
     except Exception as e:
-        print(f"❌ Erreur lors de la lecture de {filename}: {e}")
+        logger.error(f"❌ Erreur lors de la lecture de {filename}: {e}")
         return []
 
 
-def analyze_playlist(channels, filename):
-    """Analyse une playlist et affiche les statistiques."""
+def analyze_playlist(channels: List[Dict[str, str]], filename: str) -> Optional[Dict[str, any]]:
+    """
+    Analyze a playlist and display statistics.
+
+    Args:
+        channels: List of channel dictionaries
+        filename: Name of the playlist file
+
+    Returns:
+        Dictionary with statistics or None if no channels
+    """
     if not channels:
-        return
+        logger.warning(f"⚠️  Pas de chaînes dans {filename}")
+        return None
 
-    print(f"\n📊 Analyse de {filename}:")
-    print(f"  📺 Nombre de chaînes: {len(channels)}")
+    logger.info(f"\n📊 Analyse de {filename}:")
+    logger.info(f"  📺 Nombre de chaînes: {len(channels)}")
 
-    # Qualités
-    qualities = defaultdict(int)
+    # Qualities
+    qualities: Dict[str, int] = defaultdict(int)
     for channel in channels:
         qualities[channel["quality"]] += 1
 
-    print(f"  🎯 Qualités:")
+    logger.info(f"  🎯 Qualités:")
     for quality, count in sorted(qualities.items(), key=lambda x: x[1], reverse=True):
-        print(f"    {quality}: {count} chaînes")
+        logger.info(f"    {quality}: {count} chaînes")
 
-    # Groupes
-    groups = defaultdict(int)
+    # Groups
+    groups: Dict[str, int] = defaultdict(int)
     for channel in channels:
         groups[channel["group"]] += 1
 
-    print(f"  📂 Groupes (top 10):")
+    logger.info(f"  📂 Groupes (top 10):")
     for group, count in sorted(groups.items(), key=lambda x: x[1], reverse=True)[:10]:
-        print(f"    {group}: {count} chaînes")
+        display_group = group if len(group) <= 40 else group[:37] + "..."
+        logger.info(f"    {display_group}: {count} chaînes")
 
-    # Chaînes uniques
+    # Unique channels
     unique_names = set(channel["name"] for channel in channels)
-    print(f"  🔍 Noms uniques: {len(unique_names)}")
+    logger.info(f"  🔍 Noms uniques: {len(unique_names)}")
+
+    # Duplicate detection
+    duplicates = len(channels) - len(unique_names)
+    if duplicates > 0:
+        logger.info(f"  ⚠️  Doublons détectés: {duplicates} chaînes")
 
     return {
         "total": len(channels),
         "qualities": dict(qualities),
         "groups": dict(groups),
         "unique_names": len(unique_names),
+        "duplicates": duplicates,
     }
 
 
-def compare_playlists(files):
-    """Compare plusieurs playlists."""
-    print("🔍 Comparaison des playlists")
-    print("=" * 50)
+def find_common_channels(
+    all_channels: Dict[str, List[Dict[str, str]]]
+) -> Tuple[Set[str], Dict[str, Set[str]]]:
+    """
+    Find common and unique channels across playlists.
+
+    Args:
+        all_channels: Dictionary mapping filenames to channel lists
+
+    Returns:
+        Tuple of (common_channels, unique_per_playlist)
+    """
+    if len(all_channels) < 2:
+        return set(), {}
+
+    filenames = list(all_channels.keys())
+    channel_sets = {
+        filename: set(ch["name"] for ch in channels)
+        for filename, channels in all_channels.items()
+    }
+
+    # Find common channels (intersection of all)
+    common = set.intersection(*channel_sets.values())
+
+    # Find unique channels per playlist
+    unique_per_playlist = {}
+    for filename, channels in channel_sets.items():
+        # Channels only in this playlist
+        other_channels = set.union(*(s for f, s in channel_sets.items() if f != filename))
+        unique_per_playlist[filename] = channels - other_channels
+
+    return common, unique_per_playlist
+
+
+def compare_playlists(files: List[str]) -> None:
+    """
+    Compare multiple playlists and display statistics.
+
+    Args:
+        files: List of playlist filenames to compare
+    """
+    logger.info("🔍 Comparaison des playlists")
+    logger.info("=" * 50)
 
     results = {}
     all_channels = {}
 
+    # Parse all playlists
     for filename in files:
         channels = parse_playlist(filename)
         if channels:
             results[filename] = analyze_playlist(channels, filename)
             all_channels[filename] = channels
 
-    if len(results) < 2:
-        print("\n⚠️  Au moins 2 playlists sont nécessaires pour la comparaison")
+    if not results:
+        logger.error("\n❌ Aucune playlist valide trouvée")
         return
 
-    # Comparaison
-    print(f"\n📈 Comparaison:")
-    print(f"  📊 Nombre de chaînes:")
+    if len(results) < 2:
+        logger.warning("\n⚠️  Au moins 2 playlists sont nécessaires pour la comparaison")
+        return
+
+    # Comparison
+    logger.info(f"\n📈 Comparaison:")
+    logger.info(f"  📊 Nombre de chaînes:")
     for filename, stats in results.items():
-        print(f"    {filename}: {stats['total']} chaînes")
+        if stats:
+            logger.info(f"    {filename}: {stats['total']} chaînes")
 
-    # Chaînes communes
-    if len(all_channels) >= 2:
-        filenames = list(all_channels.keys())
-        channels1 = set(ch["name"] for ch in all_channels[filenames[0]])
-        channels2 = set(ch["name"] for ch in all_channels[filenames[1]])
+    # Find common and unique channels
+    common, unique_per_playlist = find_common_channels(all_channels)
 
-        common = channels1.intersection(channels2)
-        only_in_1 = channels1 - channels2
-        only_in_2 = channels2 - channels1
+    if common:
+        logger.info(f"\n  🔄 Chaînes communes à toutes les playlists: {len(common)}")
+        logger.info(f"\n  📋 Exemples de chaînes communes:")
+        for i, name in enumerate(sorted(list(common))[:10]):
+            logger.info(f"    {i+1}. {name}")
+        if len(common) > 10:
+            logger.info(f"    ... et {len(common) - 10} autres")
 
-        print(f"\n  🔄 Chaînes communes: {len(common)}")
-        print(f"  ➕ Uniquement dans {filenames[0]}: {len(only_in_1)}")
-        print(f"  ➕ Uniquement dans {filenames[1]}: {len(only_in_2)}")
+    # Unique channels per playlist
+    logger.info(f"\n  ➕ Chaînes uniques par playlist:")
+    for filename, unique_channels in unique_per_playlist.items():
+        logger.info(f"    {filename}: {len(unique_channels)} chaînes uniques")
 
-        if common:
-            print(f"\n  📋 Exemples de chaînes communes:")
-            for i, name in enumerate(sorted(list(common))[:5]):
-                print(f"    {i+1}. {name}")
-            if len(common) > 5:
-                print(f"    ... et {len(common) - 5} autres")
+        if unique_channels and len(unique_channels) <= 10:
+            logger.info(f"      Exemples:")
+            for name in sorted(list(unique_channels))[:5]:
+                logger.info(f"        • {name}")
+
+    # Quality comparison
+    logger.info(f"\n  🎯 Comparaison des qualités:")
+    for filename, stats in results.items():
+        if stats and stats["qualities"]:
+            best_quality = max(stats["qualities"].items(), key=lambda x: (x[0] != "unknown", x[1]))
+            logger.info(f"    {filename}: {best_quality[1]} chaînes en {best_quality[0]}")
 
 
-def main():
-    import sys
+def list_available_playlists() -> List[Tuple[str, int]]:
+    """
+    List all M3U files in current directory.
 
+    Returns:
+        List of (filename, channel_count) tuples
+    """
+    playlists = []
+    for file_path in Path(".").glob("*.m3u"):
+        if file_path.is_file():
+            channels = parse_playlist(str(file_path))
+            playlists.append((str(file_path), len(channels)))
+
+    return sorted(playlists, key=lambda x: x[1], reverse=True)
+
+
+def main() -> None:
+    """Main entry point for playlist comparison."""
     if len(sys.argv) < 2:
-        print("🔍 Comparateur de playlists M3U")
-        print("=" * 40)
-        print("\n💡 Utilisation:")
-        print("  python compare_playlists.py playlist1.m3u playlist2.m3u")
-        print("  python compare_playlists.py filtered.m3u french_only.m3u")
-        print("\n📋 Fichiers disponibles:")
+        logger.info("🔍 Comparateur de playlists M3U")
+        logger.info("=" * 40)
+        logger.info("\n💡 Utilisation:")
+        logger.info("  python compare_playlists.py playlist1.m3u playlist2.m3u")
+        logger.info("  python compare_playlists.py filtered.m3u french_only.m3u")
 
-        import os
+        logger.info("\n📋 Fichiers M3U disponibles:")
+        playlists = list_available_playlists()
 
-        m3u_files = [f for f in os.listdir(".") if f.endswith(".m3u")]
-        for i, filename in enumerate(m3u_files, 1):
-            channels = parse_playlist(filename)
-            print(f"  {i}. {filename} ({len(channels)} chaînes)")
+        if not playlists:
+            logger.warning("  Aucun fichier .m3u trouvé dans le répertoire courant")
+        else:
+            for i, (filename, count) in enumerate(playlists, 1):
+                size = Path(filename).stat().st_size
+                size_kb = size / 1024
+                logger.info(f"  {i}. {filename} ({count} chaînes, {size_kb:.1f} KB)")
 
         return
 
     files = sys.argv[1:]
-    compare_playlists(files)
+
+    # Validate files exist
+    valid_files = []
+    for filename in files:
+        if Path(filename).exists():
+            valid_files.append(filename)
+        else:
+            logger.error(f"❌ Fichier non trouvé: {filename}")
+
+    if not valid_files:
+        logger.error("\n❌ Aucun fichier valide fourni")
+        sys.exit(1)
+
+    if len(valid_files) < 2:
+        logger.warning("\n⚠️  Un seul fichier fourni, affichage de l'analyse uniquement")
+
+    compare_playlists(valid_files)
 
 
 if __name__ == "__main__":
