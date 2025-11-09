@@ -1,18 +1,29 @@
 #!/usr/bin/env python3
 """
-Nettoyeur de playlist TV spécialisé pour les chaînes TNT françaises
-Filtre et nettoie les playlists pour ne garder que les 25 chaînes TNT principales
+Specialized TV playlist cleaner for French TNT (Télévision Numérique Terrestre) channels.
+
+Filters and cleans playlists to keep only the 25 main French TNT channels with intelligent
+name matching and quality selection.
 """
 
-import requests
 import re
-import subprocess
-import json
-import argparse
-from concurrent.futures import ThreadPoolExecutor
-from collections import defaultdict
-from tqdm import tqdm
 import hashlib
+import argparse
+import logging
+from concurrent.futures import ThreadPoolExecutor, as_completed
+from typing import List, Dict, Any, Optional
+from tqdm import tqdm
+
+# Import shared utilities
+from playlist_utils import (
+    download_playlist,
+    check_stream_with_ffprobe,
+    filter_best_quality,
+    write_playlist,
+    check_tool_availability,
+    analyze_failures,
+    setup_logging
+)
 
 # Sources M3U pour les chaînes françaises
 M3U_SOURCES = [
@@ -250,73 +261,71 @@ CHANNEL_VARIATIONS = {
     ],
     "L'Équipe": [
         "L'Équipe",
-        "L'ÉQUIPE",
         "L'Equipe",
-        "L'Équipe TV",
-        "L'Équipe 21",
-        "L'Équipe FR",
-        "L'ÉQUIPE FR",
-        "21. LA CHAÎNE L'ÉQUIPE [1080p-dailymotion.com]",
-        "LA CHAÎNE L'ÉQUIPE [1080p-dailymotion.com]",
+        "L EQUIPE",
+        "LEQUIPE",
+        "L'Équipe HD",
+        "L'Equipe HD",
+        "21. L'Équipe [1080p-rmcbfmplay.com]",
+        "L'Équipe [1080p-rmcbfmplay.com]",
     ],
     "6Ter": [
         "6Ter",
         "6TER",
+        "6ter",
+        "6 Ter",
+        "6 TER",
         "6Ter HD",
         "6TER HD",
-        "6Ter FR",
-        "6TER FR",
-        "6ter (1080p) [Geo-blocked]",
-        "6TER [drm-keycrypted]",
-        "1656. 6TER [FR]",
+        "22. 6ter [720p-tf1.fr]",
+        "6ter [720p-tf1.fr]",
     ],
     "RMC Story": [
         "RMC Story",
         "RMC STORY",
         "RMC Story HD",
-        "RMC Story FR",
-        "RMC STORY FR",
-        "RMC Story [FR]",
-        "RMC STORY [FR]",
-        "1689. RMC STORY [FR]",
-        "1065. RMC Story [1080p-samsungtvplus]",
-        "RMC Story [1080p-samsungtvplus]",
+        "RMC STORY HD",
+        "23. RMC Story [720p-tf1.fr]",
+        "RMC Story [720p-tf1.fr]",
     ],
     "RMC Découverte": [
         "RMC Découverte",
-        "RMC DÉCOUVERTE",
         "RMC Decouverte",
+        "RMC DÉCOUVERTE",
+        "RMC DECOUVERTE",
         "RMC Découverte HD",
-        "RMC Découverte FR",
-        "RMC DÉCOUVERTE FR",
-        "RMC Découverte [FR]",
-        "RMC DÉCOUVERTE [FR]",
-        "1066. RMC Découverte [1080p-samsungtvplus]",
+        "RMC Decouverte HD",
+        "24. RMC Découverte [720p-tf1.fr]",
+        "RMC Découverte [720p-tf1.fr]",
     ],
     "Chérie 25": [
         "Chérie 25",
-        "CHÉRIE 25",
         "Cherie 25",
+        "CHÉRIE 25",
+        "CHERIE 25",
         "Chérie 25 HD",
         "Chérie 25 FR",
         "CHÉRIE 25 FR",
     ],
 }
 
-
-def download_playlist(url):
-    """Download the M3U playlist from the given URL."""
-    try:
-        response = requests.get(url, timeout=30)
-        response.raise_for_status()
-        return response.text
-    except Exception as e:
-        print(f"⚠️  Erreur lors du téléchargement de {url}: {e}")
-        return None
+logger = logging.getLogger(__name__)
 
 
-def normalize_channel_name(name):
-    """Normalize channel name for better matching."""
+def normalize_channel_name(name: str) -> str:
+    """
+    Normalize channel name for better matching (TNT-specific version).
+
+    Args:
+        name: Channel name to normalize
+
+    Returns:
+        Normalized channel name
+
+    Example:
+        >>> normalize_channel_name("TF1 HD [FR]")
+        'TF1 HD'
+    """
     # Remove common suffixes and prefixes
     name = name.strip()
 
@@ -334,8 +343,22 @@ def normalize_channel_name(name):
     return name
 
 
-def is_tnt_channel(channel_name):
-    """Check if a channel name matches one of the TNT channels."""
+def is_tnt_channel(channel_name: str) -> Optional[str]:
+    """
+    Check if a channel name matches one of the TNT channels.
+
+    Args:
+        channel_name: Channel name to check
+
+    Returns:
+        Official TNT channel name if matched, None otherwise
+
+    Example:
+        >>> is_tnt_channel("TF1 HD [FR]")
+        'TF1'
+        >>> is_tnt_channel("Some Random Channel")
+        None
+    """
     normalized_name = normalize_channel_name(channel_name)
 
     for official_name, variations in CHANNEL_VARIATIONS.items():
@@ -346,22 +369,33 @@ def is_tnt_channel(channel_name):
     return None
 
 
-def generate_stream_hash(url):
-    """Generate a hash for the stream URL to help with deduplication."""
-    return hashlib.md5(url.encode()).hexdigest()[:8]
+def parse_m3u_tnt_filter(m3u_text: str, source_name: str = "Unknown") -> List[Dict[str, str]]:
+    """
+    Parse M3U content and filter for TNT channels only.
 
+    Args:
+        m3u_text: Raw M3U playlist content
+        source_name: Name of the source for tracking
 
-def parse_m3u(m3u_text, source_name="Unknown"):
-    """Parse M3U content and extract stream information."""
+    Returns:
+        List of TNT channel entries with normalized names and hashes
+    """
     entries = []
     lines = m3u_text.strip().splitlines()
     i = 0
+
     while i < len(lines):
         if lines[i].startswith("#EXTINF"):
             info = lines[i]
             i += 1
-            if i < len(lines):
-                url = lines[i]
+            if i < len(lines) and not lines[i].startswith("#"):
+                url = lines[i].strip()
+
+                # Skip invalid URLs
+                if not url or url.startswith("#"):
+                    i += 1
+                    continue
+
                 # Try to extract channel name from tvg-name attribute first, then from the end of the line
                 tvg_match = re.search(r'tvg-name="([^"]+)"', info)
                 if tvg_match:
@@ -374,421 +408,222 @@ def parse_m3u(m3u_text, source_name="Unknown"):
                 # Check if this is a TNT channel
                 tnt_channel = is_tnt_channel(name)
                 if tnt_channel:
-                    # Generate normalized name and hash
+                    # Generate normalized name and hash (using SHA256 instead of MD5)
                     normalized_name = normalize_channel_name(name)
-                    stream_hash = generate_stream_hash(url)
+                    stream_hash = hashlib.sha256(url.encode()).hexdigest()[:16]
 
-                    entries.append(
-                        {
-                            "name": name,
-                            "tnt_name": tnt_channel,  # Official TNT name
-                            "normalized_name": normalized_name,
-                            "stream_hash": stream_hash,
-                            "info": info,
-                            "url": url,
-                            "source": source_name,
-                        }
-                    )
+                    entries.append({
+                        "name": name,
+                        "tnt_name": tnt_channel,  # Official TNT name
+                        "normalized_name": normalized_name,
+                        "stream_hash": stream_hash,
+                        "info": info,
+                        "url": url,
+                        "source": source_name,
+                    })
         i += 1
+
+    logger.debug(f"Found {len(entries)} TNT channels from {source_name}")
     return entries
 
 
-def check_direct_stream(entry):
-    """Check direct stream using ffprobe."""
-    try:
-        # Use ffprobe to check if the stream is valid and get stream info
-        cmd = [
-            "ffprobe",
-            "-v",
-            "quiet",
-            "-print_format",
-            "json",
-            "-show_format",
-            "-show_streams",
-            "-allowed_extensions",
-            "ALL",
-            "-user_agent",
-            "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/14.0 Safari/605.1.15",
-            "-timeout",
-            "15000000",  # 15 seconds in microseconds
-            entry["url"],
-        ]
+def deduplicate_streams(entries: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
+    """
+    Remove duplicate streams based on URL hash.
 
-        result = subprocess.run(cmd, capture_output=True, text=True, timeout=20)
+    Args:
+        entries: List of stream entries
 
-        if result.returncode == 0 and result.stdout.strip():
-            try:
-                # Parse JSON output to get stream information
-                stream_info = json.loads(result.stdout)
+    Returns:
+        Deduplicated list of stream entries
+    """
+    seen_hashes = set()
+    unique_entries = []
 
-                # Determine quality from video streams
-                quality = "unknown"
-                if "streams" in stream_info:
-                    video_streams = [
-                        s
-                        for s in stream_info["streams"]
-                        if s.get("codec_type") == "video"
-                    ]
-                    if video_streams:
-                        video_stream = video_streams[0]
-                        width = video_stream.get("width", 0)
-                        height = video_stream.get("height", 0)
-
-                        if width >= 1920 and height >= 1080:
-                            quality = "1080p"
-                        elif width >= 1280 and height >= 720:
-                            quality = "720p"
-                        elif width >= 854 and height >= 480:
-                            quality = "480p"
-                        elif width > 0 and height > 0:
-                            quality = f"{height}p"
-
-                return {
-                    "working": True,
-                    "quality": quality,
-                    "method": "ffprobe",
-                    "error": None,
-                    **entry,
-                }
-            except json.JSONDecodeError:
-                # If JSON parsing fails but command succeeded, stream is probably working
-                return {
-                    "working": True,
-                    "quality": "unknown",
-                    "method": "ffprobe",
-                    "error": None,
-                    **entry,
-                }
-        else:
-            return {
-                "working": False,
-                "quality": "unknown",
-                "method": "ffprobe",
-                "error": result.stderr.strip() or "ffprobe failed",
-                **entry,
-            }
-
-    except subprocess.TimeoutExpired:
-        return {
-            "working": False,
-            "quality": "unknown",
-            "method": "ffprobe",
-            "error": "Timeout",
-            **entry,
-        }
-    except Exception as e:
-        return {
-            "working": False,
-            "quality": "unknown",
-            "method": "ffprobe",
-            "error": str(e),
-            **entry,
-        }
-
-
-def check_stream(entry):
-    """Check if a stream is working using ffprobe."""
-    return check_direct_stream(entry)
-
-
-def extract_resolution_from_quality(quality_str):
-    """Extract resolution number from quality string."""
-    if not quality_str or quality_str == "unknown":
-        return 0
-
-    # Extract number from quality string (e.g., "720p" -> 720)
-    match = re.search(r"(\d+)p", quality_str)
-    if match:
-        return int(match.group(1))
-
-    # Default values for other quality indicators
-    quality_map = {"best": 1080, "worst": 480, "direct_stream": 720}
-
-    return quality_map.get(quality_str.lower(), 0)
-
-
-def deduplicate_streams(entries):
-    """Group streams by TNT channel name and keep multiple sources for fallback."""
-    print("🔄 Groupement des flux par chaîne...")
-
-    # Group by TNT channel name
-    channel_groups = defaultdict(list)
     for entry in entries:
-        channel_groups[entry["tnt_name"]].append(entry)
+        stream_hash = entry.get("stream_hash")
+        if stream_hash and stream_hash not in seen_hashes:
+            seen_hashes.add(stream_hash)
+            unique_entries.append(entry)
 
-    deduplicated = []
-    for channel_name, streams in channel_groups.items():
-        # Sort by quality (highest first) and remove exact URL duplicates
-        unique_streams = []
-        seen_urls = set()
-
-        for stream in streams:
-            if stream["url"] not in seen_urls:
-                unique_streams.append(stream)
-                seen_urls.add(stream["url"])
-
-        # Sort by quality (highest first)
-        unique_streams.sort(
-            key=lambda x: extract_resolution_from_quality(x.get("quality", "unknown")),
-            reverse=True,
-        )
-
-        # Keep up to 5 sources per channel for better fallback coverage
-        max_sources = 5
-        selected_streams = unique_streams[:max_sources]
-
-        deduplicated.extend(selected_streams)
-        print(
-            f"  {channel_name}: {len(streams)} flux → {len(selected_streams)} sources gardées"
-        )
-
-    print(f"✅ Groupement terminé: {len(entries)} → {len(deduplicated)} flux")
-    return deduplicated
+    logger.info(f"Deduplication: {len(entries)} -> {len(unique_entries)} TNT streams")
+    return unique_entries
 
 
-def filter_best_quality(entries):
-    """Filter to keep the best working stream for each channel with fallback logic."""
-    # Group by TNT channel name
-    channel_groups = defaultdict(list)
-    for entry in entries:
-        channel_groups[entry["tnt_name"]].append(entry)
-
-    best_streams = []
-    fallback_used = 0
-
-    for channel_name, streams in channel_groups.items():
-        # Sort by quality (highest first)
-        streams.sort(
-            key=lambda x: extract_resolution_from_quality(x.get("quality", "unknown")),
-            reverse=True,
-        )
-
-        # Find the first working stream
-        working_stream = None
-        for i, stream in enumerate(streams):
-            if stream["working"]:
-                working_stream = stream
-                if i > 0:  # If not the first (best quality) stream
-                    fallback_used += 1
-                    print(
-                        f"  🔄 {channel_name}: Fallback utilisé (source {i+1}/{len(streams)})"
-                    )
-                break
-
-        if working_stream:
-            best_streams.append(working_stream)
-        else:
-            print(
-                f"  ❌ {channel_name}: Aucune source fonctionnelle ({len(streams)} sources testées)"
-            )
-
-    if fallback_used > 0:
-        print(f"🔄 Fallback utilisé pour {fallback_used} chaînes")
-
-    return best_streams
-
-
-def write_playlist(entries, output_file="tnt_channels.m3u"):
-    """Write the filtered playlist to a file."""
-    from datetime import datetime
-
-    with open(output_file, "w", encoding="utf-8") as f:
-        f.write("#EXTM3U\n")
-        f.write("# Playlist TNT française - Chaînes principales\n")
-        f.write(
-            f"# Généré automatiquement le {datetime.now().strftime('%d/%m/%Y à %H:%M:%S')}\n"
-        )
-        f.write(f"# Total: {len(entries)} chaînes TNT valides\n")
-        f.write(
-            f"# Qualités détectées: {', '.join(set(e.get('quality', 'unknown') for e in entries))}\n\n"
-        )
-
-        for entry in entries:
-            quality_info = (
-                f" ({entry.get('quality', 'unknown')})"
-                if entry.get("quality") != "unknown"
-                else ""
-            )
-            f.write(f"{entry['info']}{quality_info}\n")
-            f.write(f"{entry['url']}\n\n")
-
-
-def check_ffprobe_availability():
-    """Check if ffprobe is available."""
-    try:
-        subprocess.run(["ffprobe", "-version"], capture_output=True, check=True)
-        return True
-    except (subprocess.CalledProcessError, FileNotFoundError):
-        return False
-
-
-def analyze_failures(failed_streams):
-    """Analyze failed streams and provide statistics."""
-    error_counts = defaultdict(int)
-    method_counts = defaultdict(int)
-    source_counts = defaultdict(int)
-
-    for stream in failed_streams:
-        error_type = stream.get("error", "Unknown error")
-        if "timeout" in error_type.lower():
-            error_type = "Timeout"
-        elif "http" in error_type.lower():
-            error_type = "HTTP Error"
-
-        elif "ffprobe" in error_type.lower():
-            error_type = "FFprobe Error"
-        else:
-            error_type = "Other"
-
-        error_counts[error_type] += 1
-        method_counts[stream.get("method", "unknown")] += 1
-        source_counts[stream.get("source", "unknown")] += 1
-
-    return error_counts, method_counts, source_counts
-
-
-def main():
+def parse_arguments() -> argparse.Namespace:
+    """Parse command line arguments with validation."""
     parser = argparse.ArgumentParser(
         description="Nettoyeur de playlist TV spécialisé pour les chaînes TNT françaises"
     )
     parser.add_argument(
-        "--sources", nargs="+", default=M3U_SOURCES, help="URLs des playlists M3U"
+        "--output",
+        default="tnt_channels.m3u",
+        help="Fichier de sortie"
     )
     parser.add_argument(
-        "--output", default="tnt_channels.m3u", help="Fichier de sortie"
+        "--workers",
+        type=int,
+        default=10,
+        help="Nombre de workers parallèles (1-50)"
     )
-
     parser.add_argument(
-        "--workers", type=int, default=10, help="Nombre de workers parallèles"
+        "--timeout",
+        type=int,
+        default=15,
+        help="Timeout en secondes (1-60)"
     )
-    parser.add_argument("--timeout", type=int, default=15, help="Timeout en secondes")
     parser.add_argument(
-        "--no-deduplication", action="store_true", help="Désactiver le dédoublonnage"
+        "--verbose",
+        action="store_true",
+        help="Mode verbeux (debug logging)"
+    )
+    parser.add_argument(
+        "--sources",
+        nargs="+",
+        help="Sources M3U personnalisées (URLs)"
     )
 
     args = parser.parse_args()
 
-    print("🎯 Nettoyeur de playlist TV - Chaînes TNT françaises")
-    print("=" * 60)
-    print(f"📺 Chaînes cibles: {len(TNT_CHANNELS)} chaînes TNT principales")
-    for i, channel in enumerate(TNT_CHANNELS, 1):
-        print(f"  {i:2d}. {channel}")
-    print()
+    # Validate arguments
+    if not (1 <= args.workers <= 50):
+        parser.error("Workers must be between 1 and 50")
 
-    print("🔍 Vérification des outils...")
-    if not check_ffprobe_availability():
-        print("❌ ffprobe n'est pas installé. Veuillez installer FFmpeg.")
+    if not (1 <= args.timeout <= 60):
+        parser.error("Timeout must be between 1 and 60 seconds")
+
+    return args
+
+
+def main() -> None:
+    """Main entry point for the TNT playlist cleaner."""
+    args = parse_arguments()
+
+    # Setup logging
+    setup_logging(verbose=args.verbose)
+
+    logger.info("🔍 Vérification des outils...")
+    if not check_tool_availability("ffprobe"):
+        logger.error("❌ ffprobe n'est pas installé. Veuillez installer FFmpeg.")
         return
-    print("✅ ffprobe disponible pour la vérification des flux")
+    logger.info("✅ ffprobe disponible")
 
-    # Download and parse all sources
-    all_entries = []
-    print(f"📥 Téléchargement de {len(args.sources)} sources...")
+    # Use custom sources or default
+    sources = args.sources if args.sources else M3U_SOURCES
+    logger.info(f"📥 Téléchargement de {len(sources)} playlists pour les chaînes TNT...")
 
-    for i, source_url in enumerate(args.sources, 1):
-        print(f"  {i}/{len(args.sources)}: {source_url}")
-        m3u_text = download_playlist(source_url)
+    all_entries: List[Dict[str, Any]] = []
+
+    for i, url in enumerate(sources, 1):
+        logger.info(f"  [{i}/{len(sources)}] Téléchargement de {url[:60]}...")
+        m3u_text = download_playlist(url, timeout=args.timeout)
+
         if m3u_text:
-            source_name = f"Source_{i}"
-            entries = parse_m3u(m3u_text, source_name)
+            source_name = url.split("/")[-2] if "/" in url else f"Source{i}"
+            entries = parse_m3u_tnt_filter(m3u_text, source_name)
+            logger.info(f"  ✓ {len(entries)} chaînes TNT trouvées")
             all_entries.extend(entries)
-            print(f"    ✅ {len(entries)} flux TNT trouvés")
         else:
-            print(f"    ❌ Échec du téléchargement")
+            logger.warning(f"  ✗ Échec du téléchargement")
 
-    if not all_entries:
-        print("❌ Aucun flux TNT trouvé dans les sources")
-        return
+    logger.info(f"🎬 Total: {len(all_entries)} flux TNT de toutes les sources")
 
-    print(f"\n🎬 Total: {len(all_entries)} flux TNT trouvés dans toutes les sources")
+    # Deduplicate
+    logger.info("🔄 Dédoublonnage des flux...")
+    all_entries = deduplicate_streams(all_entries)
 
-    # Show found channels
-    found_channels = set(entry["tnt_name"] for entry in all_entries)
+    # Show which TNT channels were found
+    found_channels = set(entry.get("tnt_name") for entry in all_entries)
     missing_channels = set(TNT_CHANNELS) - found_channels
-
-    print(f"\n📊 Chaînes trouvées: {len(found_channels)}/{len(TNT_CHANNELS)}")
+    logger.info(f"📺 {len(found_channels)}/25 chaînes TNT trouvées")
     if missing_channels:
-        print(f"❌ Chaînes manquantes: {', '.join(missing_channels)}")
-
-    # Deduplicate if not disabled
-    if not args.no_deduplication:
-        all_entries = deduplicate_streams(all_entries)
+        logger.warning(f"⚠️  Chaînes manquantes: {', '.join(sorted(missing_channels))}")
 
     # Process streams with progress bar
-    print("⏳ Test des flux TNT (cela peut prendre du temps)...")
-    results = []
+    logger.info("⏳ Test des flux (cela peut prendre du temps)...")
+    results: List[Dict[str, Any]] = []
 
     with ThreadPoolExecutor(max_workers=args.workers) as executor:
         # Submit all tasks
         future_to_entry = {
-            executor.submit(check_stream, entry): entry for entry in all_entries
+            executor.submit(check_stream_with_ffprobe, entry, args.timeout): entry
+            for entry in all_entries
         }
 
-        # Process results with progress bar
-        with tqdm(total=len(all_entries), desc="Test des flux", unit="flux") as pbar:
-            for future in future_to_entry:
+        # Process results with progress bar (as_completed for better performance)
+        with tqdm(total=len(all_entries), desc="Test des flux TNT", unit="flux") as pbar:
+            for future in as_completed(future_to_entry):
                 result = future.result()
                 results.append(result)
                 pbar.update(1)
 
-                # Update description with current stats
-                working_count = len([r for r in results if r["working"]])
+                # Update stats
+                working_count = len([r for r in results if r.get("working")])
                 pbar.set_postfix(
                     {"Valides": working_count, "Échoués": len(results) - working_count}
                 )
 
-    working = [r for r in results if r["working"]]
-    failed = [r for r in results if not r["working"]]
+    working = [r for r in results if r.get("working")]
+    failed = [r for r in results if not r.get("working")]
 
-    print(f"\n✅ {len(working)} flux TNT valides trouvés.")
-    print(f"❌ {len(failed)} flux TNT échoués.")
+    logger.info(f"\n✅ {len(working)} flux valides trouvés.")
+    logger.info(f"❌ {len(failed)} flux échoués.")
 
     # Analyze failures
     if failed:
-        print("\n🔍 Analyse des échecs...")
-        error_counts, method_counts, source_counts = analyze_failures(failed)
+        logger.info("\n🔍 Analyse des échecs...")
+        error_counts, method_counts = analyze_failures(failed)
 
-        print("  Sources:")
-        for source, count in source_counts.items():
-            print(f"    {source}: {count} flux")
-
-        print("  Méthodes utilisées:")
+        logger.info("  Méthodes utilisées:")
         for method, count in method_counts.items():
-            print(f"    {method}: {count} flux")
+            logger.info(f"    {method}: {count} flux")
 
-        print("  Types d'erreurs:")
-        for error_type, count in error_counts.items():
-            print(f"    {error_type}: {count} flux")
+        logger.info("  Types d'erreurs:")
+        for error_type, count in sorted(error_counts.items(), key=lambda x: -x[1])[:5]:
+            logger.info(f"    {error_type}: {count} flux")
 
     if working:
-        # Show some quality statistics
-        qualities = [r["quality"] for r in working if r["quality"] != "unknown"]
+        # Show quality statistics
+        qualities = [r.get("quality") for r in working if r.get("quality") != "unknown"]
         if qualities:
-            print(f"\n📊 Qualités disponibles: {', '.join(set(qualities))}")
+            unique_qualities = sorted(set(qualities))
+            logger.info(f"\n📊 Qualités disponibles: {', '.join(unique_qualities)}")
 
-    best_streams = filter_best_quality(working)
-    print(f"🔝 {len(best_streams)} flux TNT sélectionnés avec la meilleure qualité.")
+    # Select best quality for each TNT channel
+    best_streams = filter_best_quality(working, deduplicate=True)
+    logger.info(f"🔝 {len(best_streams)} flux TNT sélectionnés avec la meilleure qualité.")
+
+    # Show which TNT channels we have working streams for
+    working_tnt_channels = set(entry.get("tnt_name") for entry in best_streams)
+    logger.info(f"📺 {len(working_tnt_channels)}/25 chaînes TNT disponibles")
 
     if best_streams:
         write_playlist(best_streams, args.output)
-        print(f"💾 Playlist TNT enregistrée dans '{args.output}'")
+        logger.info(f"💾 Playlist TNT enregistrée dans '{args.output}'")
 
-        # Show selected channels
-        print("\n📺 Chaînes TNT sélectionnées:")
-        for i, stream in enumerate(best_streams, 1):
+        # Show all TNT channels found
+        logger.info("\n📺 Chaînes TNT disponibles:")
+        # Sort by TNT channel name
+        sorted_streams = sorted(best_streams, key=lambda x: TNT_CHANNELS.index(x.get("tnt_name", "")))
+        for i, stream in enumerate(sorted_streams, 1):
             quality_info = (
-                f" ({stream['quality']})" if stream["quality"] != "unknown" else ""
+                f" ({stream.get('quality')})" if stream.get("quality") != "unknown" else ""
             )
-            method_info = f" [{stream.get('method', 'unknown')}]"
-            print(f"  {i:2d}. {stream['tnt_name']}{quality_info}{method_info}")
+            resolution_info = ""
+            if stream.get("width") and stream.get("height"):
+                resolution_info = f" {stream.get('width')}x{stream.get('height')}"
+            source_info = f" [{stream.get('source', 'unknown')}]"
+            logger.info(
+                f"  {i}. {stream.get('tnt_name', stream['name'])}{quality_info}{resolution_info}{source_info}"
+            )
 
         # Show missing channels
-        working_channels = set(stream["tnt_name"] for stream in best_streams)
-        still_missing = set(TNT_CHANNELS) - working_channels
-        if still_missing:
-            print(f"\n⚠️  Chaînes TNT toujours manquantes: {', '.join(still_missing)}")
+        if missing_tnt := (set(TNT_CHANNELS) - working_tnt_channels):
+            logger.warning(f"\n⚠️  Chaînes TNT non disponibles ({len(missing_tnt)}):")
+            for channel in sorted(missing_tnt):
+                logger.warning(f"  - {channel}")
     else:
-        print("⚠️  Aucun flux TNT valide trouvé.")
+        logger.warning("⚠️  Aucun flux TNT valide trouvé.")
 
 
 if __name__ == "__main__":
