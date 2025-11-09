@@ -112,7 +112,9 @@ exclude_lines = [
 
 [tool.bandit]
 exclude_dirs = ["tests"]
-skips = ["B101", "B601"]
+# B101: assert_used - Allow asserts in tests
+# Removed B601 (shell injection) - now properly validated
+skips = ["B101"]
 
 [tool.hatch.build.targets.wheel]
 only-include = ["*.py"]
