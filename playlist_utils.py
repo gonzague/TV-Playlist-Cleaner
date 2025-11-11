@@ -220,9 +220,14 @@ def check_stream_with_curl(
         }
 
     try:
+        # Find curl executable (handles restricted PATH with sudo)
+        curl_path = find_tool_path("curl")
+        if not curl_path:
+            curl_path = "curl"  # Fallback to name if not found
+
         # Use curl to check if the stream is accessible
         cmd = [
-            "curl",
+            curl_path,
             "-I",
             "--connect-timeout",
             str(timeout),
@@ -345,9 +350,14 @@ def check_stream_with_ffprobe(
         }
 
     try:
+        # Find ffprobe executable (handles restricted PATH with sudo)
+        ffprobe_path = find_tool_path("ffprobe")
+        if not ffprobe_path:
+            ffprobe_path = "ffprobe"  # Fallback to name if not found
+
         # Use ffprobe to check if the stream is valid and get stream info
         cmd = [
-            "ffprobe",
+            ffprobe_path,
             "-v",
             "quiet",
             "-print_format",
@@ -589,9 +599,47 @@ def write_playlist(
     logger.info(f"Playlist written successfully to {output_file}")
 
 
+def find_tool_path(tool_name: str) -> Optional[str]:
+    """
+    Find the full path to a tool, checking common installation locations.
+
+    This is especially useful when PATH is restricted (e.g., when running with sudo).
+
+    Args:
+        tool_name: Name of the tool to find (e.g., 'curl', 'ffprobe')
+
+    Returns:
+        Full path to the tool if found, None otherwise
+    """
+    import os
+    import shutil
+
+    # First, try using shutil.which which checks PATH
+    tool_path = shutil.which(tool_name)
+    if tool_path and os.path.isfile(tool_path):
+        return tool_path
+
+    # Common installation paths (especially for macOS with Homebrew)
+    common_paths = [
+        f"/opt/homebrew/bin/{tool_name}",  # Homebrew Apple Silicon Mac
+        f"/usr/local/bin/{tool_name}",  # Homebrew Intel Mac
+        f"/usr/bin/{tool_name}",  # Standard Linux/macOS
+        f"/bin/{tool_name}",  # Standard Linux
+    ]
+
+    for path in common_paths:
+        if os.path.isfile(path) and os.access(path, os.X_OK):
+            return path
+
+    return None
+
+
 def check_tool_availability(tool_name: str) -> bool:
     """
     Check if a tool is available on the system.
+
+    This function checks multiple locations to handle cases where PATH
+    is restricted (e.g., when running with sudo on macOS).
 
     Args:
         tool_name: Name of the tool to check (e.g., 'curl', 'ffprobe')
@@ -599,16 +647,28 @@ def check_tool_availability(tool_name: str) -> bool:
     Returns:
         True if tool is available, False otherwise
     """
+    tool_path = find_tool_path(tool_name)
+
+    if not tool_path:
+        logger.warning(f"⚠️  {tool_name} non trouvé dans les chemins standards")
+        return False
+
+    # Verify the tool works
     try:
         result = subprocess.run(
-            [tool_name, "--version"],
+            [tool_path, "--version"],
             capture_output=True,
             text=True,
             timeout=5
         )
-        return result.returncode == 0
-    except (FileNotFoundError, subprocess.TimeoutExpired):
+        if result.returncode == 0:
+            logger.debug(f"✅ {tool_name} trouvé et fonctionnel à: {tool_path}")
+            return True
+    except (FileNotFoundError, subprocess.TimeoutExpired) as e:
+        logger.warning(f"⚠️  {tool_name} trouvé à {tool_path} mais non fonctionnel: {e}")
         return False
+
+    return False
 
 
 def analyze_failures(failed_streams: List[Dict[str, Any]]) -> Tuple[Dict[str, int], Dict[str, int]]:
