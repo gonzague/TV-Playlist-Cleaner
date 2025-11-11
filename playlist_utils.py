@@ -24,7 +24,10 @@ logger = logging.getLogger(__name__)
 # Constants
 MAX_PLAYLIST_SIZE = 50 * 1024 * 1024  # 50MB
 ALLOWED_SCHEMES = ('http', 'https')
-DANGEROUS_CHARS = [';', '&', '|', '`', '$', '(', ')', '\n', '\r']
+# Only block characters that could truly break things when passed to subprocess
+# We pass URLs as list arguments (not shell strings), so most special chars are safe
+# Only newlines and null bytes can cause real issues with argument parsing
+DANGEROUS_CHARS = ['\n', '\r', '\0']
 
 # Quality thresholds
 RESOLUTION_1080P = 1920
@@ -117,16 +120,15 @@ def download_playlist(url: str, timeout: int = 30) -> Optional[str]:
             raise ValueError(f"Playlist too large: {content_length} bytes")
 
         # Download with size limit
-        content = []
-        size = 0
-        for chunk in response.iter_content(chunk_size=8192, decode_unicode=True):
+        content = b''
+        for chunk in response.iter_content(chunk_size=8192):
             if chunk:  # filter out keep-alive chunks
-                size += len(chunk)
-                if size > MAX_PLAYLIST_SIZE:
+                if len(content) + len(chunk) > MAX_PLAYLIST_SIZE:
                     raise ValueError("Playlist exceeds size limit")
-                content.append(chunk)
+                content += chunk
 
-        result = ''.join(content)
+        # Decode to string
+        result = content.decode('utf-8', errors='replace')
         logger.info(f"Successfully downloaded {len(result)} bytes")
         return result
 
