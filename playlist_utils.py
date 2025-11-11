@@ -11,6 +11,8 @@ import subprocess
 import hashlib
 import logging
 import json
+import shutil
+import os
 from typing import List, Dict, Optional, Tuple, Any
 from collections import defaultdict
 from urllib.parse import urlparse
@@ -220,9 +222,23 @@ def check_stream_with_curl(
         }
 
     try:
+        # Get the full path to curl
+        curl_path = get_tool_path("curl")
+        if not curl_path:
+            logger.warning(f"curl not found for {entry['name']}")
+            return {
+                **entry,
+                "working": False,
+                "quality": "failed",
+                "width": 0,
+                "height": 0,
+                "error": "curl not found",
+                "method": "validation"
+            }
+        
         # Use curl to check if the stream is accessible
         cmd = [
-            "curl",
+            curl_path,  # Use full path instead of just "curl"
             "-I",
             "--connect-timeout",
             str(timeout),
@@ -345,9 +361,23 @@ def check_stream_with_ffprobe(
         }
 
     try:
+        # Get the full path to ffprobe
+        ffprobe_path = get_tool_path("ffprobe")
+        if not ffprobe_path:
+            logger.warning(f"ffprobe not found for {entry['name']}")
+            return {
+                **entry,
+                "working": False,
+                "quality": "failed",
+                "width": 0,
+                "height": 0,
+                "error": "ffprobe not found",
+                "method": "validation"
+            }
+        
         # Use ffprobe to check if the stream is valid and get stream info
         cmd = [
-            "ffprobe",
+            ffprobe_path,  # Use full path instead of just "ffprobe"
             "-v",
             "quiet",
             "-print_format",
@@ -589,6 +619,40 @@ def write_playlist(
     logger.info(f"Playlist written successfully to {output_file}")
 
 
+def get_tool_path(tool_name: str) -> Optional[str]:
+    """
+    Get the full path to a tool executable.
+
+    Args:
+        tool_name: Name of the tool to find (e.g., 'curl', 'ffprobe')
+
+    Returns:
+        Full path to the tool, or None if not found
+    """
+    # First try to find the tool using shutil.which()
+    # This searches the PATH and returns the full path if found
+    tool_path = shutil.which(tool_name)
+    
+    if tool_path:
+        logger.debug(f"Found {tool_name} at: {tool_path}")
+        return tool_path
+    
+    # If not found in PATH, try common locations (especially for Homebrew on macOS)
+    common_paths = [
+        f"/usr/local/bin/{tool_name}",
+        f"/opt/homebrew/bin/{tool_name}",
+        f"/usr/bin/{tool_name}",
+    ]
+    
+    for path in common_paths:
+        if os.path.isfile(path) and os.access(path, os.X_OK):
+            logger.debug(f"Found {tool_name} at: {path}")
+            return path
+    
+    logger.debug(f"{tool_name} not found in PATH or common locations")
+    return None
+
+
 def check_tool_availability(tool_name: str) -> bool:
     """
     Check if a tool is available on the system.
@@ -599,16 +663,7 @@ def check_tool_availability(tool_name: str) -> bool:
     Returns:
         True if tool is available, False otherwise
     """
-    try:
-        result = subprocess.run(
-            [tool_name, "--version"],
-            capture_output=True,
-            text=True,
-            timeout=5
-        )
-        return result.returncode == 0
-    except (FileNotFoundError, subprocess.TimeoutExpired):
-        return False
+    return get_tool_path(tool_name) is not None
 
 
 def analyze_failures(failed_streams: List[Dict[str, Any]]) -> Tuple[Dict[str, int], Dict[str, int]]:
