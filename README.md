@@ -5,7 +5,7 @@
 
 [![Python](https://img.shields.io/badge/Python-3.8+-blue.svg)](https://www.python.org/downloads/)
 [![License](https://img.shields.io/badge/License-MIT-green.svg)](LICENSE)
-[![Status](https://img.shields.io/badge/Status-Active-brightgreen.svg)](https://github.com/yourusername/TV-playlist-cleaner)
+[![Status](https://img.shields.io/badge/Status-Active-brightgreen.svg)](https://github.com/gonzague/TV-Playlist-Cleaner)
 
 
 Un script Python avancé pour nettoyer, filtrer et optimiser les playlists M3U en utilisant curl et ffprobe pour détecter les flux valides et sélectionner automatiquement la meilleure qualité disponible.
@@ -97,7 +97,7 @@ pip install uv
 
 ```bash
 # Cloner le repository
-git clone https://github.com/yourusername/TV-playlist-cleaner.git
+git clone https://github.com/gonzague/TV-playlist-Cleaner.git
 cd TV-playlist-cleaner
 
 # Créer un environnement virtuel et installer les dépendances avec UV
@@ -114,7 +114,7 @@ python cleaner_config.py french
 
 ```bash
 # Cloner le repository
-git clone https://github.com/yourusername/TV-playlist-cleaner.git
+git clone https://github.com/gonzague/TV-playlist-cleaner.git
 cd TV-playlist-cleaner
 
 # Construire l'image Docker
