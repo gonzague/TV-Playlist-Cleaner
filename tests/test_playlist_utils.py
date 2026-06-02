@@ -220,10 +220,12 @@ class TestStreamValidation:
         assert "Invalid URL" in result["error"]
 
     @patch("playlist_utils.validate_url")
+    @patch("playlist_utils.get_tool_path")
     @patch("playlist_utils.subprocess.run")
-    def test_curl_validation_success(self, mock_run, mock_validate):
+    def test_curl_validation_success(self, mock_run, mock_get_tool_path, mock_validate):
         """Test successful curl validation."""
         mock_validate.return_value = True
+        mock_get_tool_path.return_value = "/usr/bin/curl"
         mock_run.return_value = Mock(
             returncode=0, stdout="HTTP/1.1 200 OK\nContent-Type: video/mp4\n", stderr=""
         )
@@ -241,10 +243,12 @@ class TestStreamValidation:
         assert result["method"] == "curl"
 
     @patch("playlist_utils.validate_url")
+    @patch("playlist_utils.get_tool_path")
     @patch("playlist_utils.subprocess.run")
-    def test_curl_validation_timeout(self, mock_run, mock_validate):
+    def test_curl_validation_timeout(self, mock_run, mock_get_tool_path, mock_validate):
         """Test curl validation timeout handling."""
         mock_validate.return_value = True
+        mock_get_tool_path.return_value = "/usr/bin/curl"
         mock_run.side_effect = subprocess.TimeoutExpired(cmd=[], timeout=5)
 
         entry = {
@@ -258,10 +262,14 @@ class TestStreamValidation:
         assert result["error"] == "Timeout"
 
     @patch("playlist_utils.validate_url")
+    @patch("playlist_utils.get_tool_path")
     @patch("playlist_utils.subprocess.run")
-    def test_ffprobe_validation_success(self, mock_run, mock_validate):
+    def test_ffprobe_validation_success(
+        self, mock_run, mock_get_tool_path, mock_validate
+    ):
         """Test successful ffprobe validation."""
         mock_validate.return_value = True
+        mock_get_tool_path.return_value = "/usr/bin/ffprobe"
 
         stream_info = {
             "streams": [{"codec_type": "video", "width": 1920, "height": 1080}]
@@ -284,10 +292,12 @@ class TestStreamValidation:
         assert result["method"] == "ffprobe"
 
     @patch("playlist_utils.validate_url")
+    @patch("playlist_utils.get_tool_path")
     @patch("playlist_utils.subprocess.run")
-    def test_ffprobe_validation_720p(self, mock_run, mock_validate):
+    def test_ffprobe_validation_720p(self, mock_run, mock_get_tool_path, mock_validate):
         """Test ffprobe detection of 720p quality."""
         mock_validate.return_value = True
+        mock_get_tool_path.return_value = "/usr/bin/ffprobe"
 
         stream_info = {
             "streams": [{"codec_type": "video", "width": 1280, "height": 720}]
@@ -595,9 +605,11 @@ class TestEdgeCases:
 
         assert result == []
 
+    @patch("playlist_utils.get_tool_path")
     @patch("playlist_utils.subprocess.run")
-    def test_ffprobe_json_decode_error(self, mock_run):
+    def test_ffprobe_json_decode_error(self, mock_run, mock_get_tool_path):
         """Test handling of invalid JSON from ffprobe."""
+        mock_get_tool_path.return_value = "/usr/bin/ffprobe"
         mock_run.return_value = Mock(returncode=0, stdout="Invalid JSON", stderr="")
 
         entry = {

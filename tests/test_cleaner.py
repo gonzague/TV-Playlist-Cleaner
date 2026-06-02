@@ -226,9 +226,11 @@ http://example.com/france2.m3u8"""
         result = check_curl_availability()
         assert result is False
 
+    @patch("playlist_utils.get_tool_path")
     @patch("cleaner.subprocess.run")
-    def test_check_stream_with_curl_success(self, mock_run):
+    def test_check_stream_with_curl_success(self, mock_run, mock_get_tool_path):
         """Test successful stream check with curl"""
+        mock_get_tool_path.return_value = "/usr/bin/curl"
         mock_result = MagicMock()
         mock_result.returncode = 0
         mock_result.stdout = "HTTP/1.1 200 OK\nContent-Type: video/mp4\n"
@@ -242,9 +244,11 @@ http://example.com/france2.m3u8"""
         assert result["width"] == 1920
         assert result["height"] == 1080
 
+    @patch("playlist_utils.get_tool_path")
     @patch("cleaner.subprocess.run")
-    def test_check_stream_with_curl_failure(self, mock_run):
+    def test_check_stream_with_curl_failure(self, mock_run, mock_get_tool_path):
         """Test failed stream check with curl"""
+        mock_get_tool_path.return_value = "/usr/bin/curl"
         mock_result = MagicMock()
         mock_result.returncode = 1
         mock_result.stderr = "404 Not Found"
@@ -257,9 +261,11 @@ http://example.com/france2.m3u8"""
         assert result["quality"] == "failed"
         assert "404 Not Found" in result["error"]
 
+    @patch("playlist_utils.get_tool_path")
     @patch("cleaner.subprocess.run")
-    def test_check_stream_with_curl_timeout(self, mock_run):
+    def test_check_stream_with_curl_timeout(self, mock_run, mock_get_tool_path):
         """Test stream check timeout with curl"""
+        mock_get_tool_path.return_value = "/usr/bin/curl"
         mock_run.side_effect = subprocess.TimeoutExpired("curl", 15)
 
         entry = {"name": "Test Channel", "url": "http://example.com/slow.m3u8"}
