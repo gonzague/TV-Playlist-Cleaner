@@ -35,7 +35,7 @@ dev = [
     "pytest>=6.0",
     "pytest-cov>=2.0",
     "flake8>=3.8",
-    "black>=21.0",
+    "black==24.8.0",
     "bandit>=1.6",
 ]
 

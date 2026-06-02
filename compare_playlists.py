@@ -205,9 +205,7 @@ def compare_playlists(files: List[str]) -> None:
         return
 
     if len(results) < 2:
-        logger.warning(
-            "\n⚠️  Au moins 2 playlists sont nécessaires pour la comparaison"
-        )
+        logger.warning("\n⚠️  Au moins 2 playlists sont nécessaires pour la comparaison")
         return
 
     # Comparison
@@ -303,9 +301,7 @@ def main() -> None:
         sys.exit(1)
 
     if len(valid_files) < 2:
-        logger.warning(
-            "\n⚠️  Un seul fichier fourni, affichage de l'analyse uniquement"
-        )
+        logger.warning("\n⚠️  Un seul fichier fourni, affichage de l'analyse uniquement")
 
     compare_playlists(valid_files)
 
