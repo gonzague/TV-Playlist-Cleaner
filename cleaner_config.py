@@ -7,13 +7,13 @@ and passes them to the multi-source cleaner.
 """
 
 import sys
-import subprocess
+import subprocess  # nosec B404
 import logging
 from typing import List
 from sources_config import get_sources_by_category, list_available_categories
 
 # Configure logging
-logging.basicConfig(level=logging.INFO, format='%(message)s')
+logging.basicConfig(level=logging.INFO, format="%(message)s")
 logger = logging.getLogger(__name__)
 
 
@@ -85,19 +85,21 @@ def main() -> None:
         logger.info(f"  {i}. {display_url}")
 
     # Build command
-    cmd = ["python", "cleaner_multi_source.py", "--sources"] + sources
+    cmd = [sys.executable, "cleaner_multi_source.py", "--sources"] + sources
 
     # Add additional options
     for arg in sys.argv[2:]:
         cmd.append(arg)
 
     logger.info(f"\n🚀 Exécution de la commande:")
-    logger.info(f"  {' '.join(cmd[:4])} ... [+{len(sources)} sources] {' '.join(sys.argv[2:])}")
+    logger.info(
+        f"  {' '.join(cmd[:4])} ... [+{len(sources)} sources] {' '.join(sys.argv[2:])}"
+    )
     logger.info("")
 
     # Execute command with timeout
     try:
-        result = subprocess.run(cmd, timeout=3600)  # 1 hour timeout
+        result = subprocess.run(cmd, timeout=3600)  # nosec B603
         if result.returncode == 0:
             logger.info(f"\n✅ Script terminé avec succès!")
         else:

@@ -31,11 +31,12 @@ class TestCleaner:
 
     def test_download_playlist_success(self):
         """Test successful playlist download"""
-        with patch("cleaner.requests.get") as mock_get:
+        with patch("playlist_utils.requests.get") as mock_get:
             mock_response = MagicMock()
-            mock_response.text = (
-                "#EXTM3U\n#EXTINF:-1,Test Channel\nhttp://example.com/stream"
-            )
+            mock_response.headers = {"Content-Type": "audio/x-mpegurl"}
+            mock_response.iter_content = lambda chunk_size: [
+                b"#EXTM3U\n#EXTINF:-1,Test Channel\nhttp://example.com/stream"
+            ]
             mock_response.raise_for_status.return_value = None
             mock_get.return_value = mock_response
 
@@ -45,11 +46,11 @@ class TestCleaner:
 
     def test_download_playlist_failure(self):
         """Test playlist download failure"""
-        with patch("cleaner.requests.get") as mock_get:
+        with patch("playlist_utils.requests.get") as mock_get:
             mock_get.side_effect = Exception("Network error")
 
-            with pytest.raises(Exception):
-                download_playlist("http://example.com/playlist.m3u")
+            result = download_playlist("http://example.com/playlist.m3u")
+            assert result is None
 
     def test_parse_m3u_valid(self):
         """Test parsing valid M3U content"""
@@ -105,6 +106,7 @@ http://example.com/france2.m3u8"""
         entries = [
             {
                 "name": "TF1",
+                "url": "http://example.com/tf1-720.m3u8",
                 "working": True,
                 "height": 720,
                 "width": 1280,
@@ -112,6 +114,7 @@ http://example.com/france2.m3u8"""
             },
             {
                 "name": "TF1",
+                "url": "http://example.com/tf1-1080.m3u8",
                 "working": True,
                 "height": 1080,
                 "width": 1920,
@@ -119,6 +122,7 @@ http://example.com/france2.m3u8"""
             },
             {
                 "name": "France 2",
+                "url": "http://example.com/france2-480.m3u8",
                 "working": True,
                 "height": 480,
                 "width": 854,
@@ -126,6 +130,7 @@ http://example.com/france2.m3u8"""
             },
             {
                 "name": "France 2",
+                "url": "http://example.com/france2-failed.m3u8",
                 "working": False,
                 "height": 0,
                 "width": 0,
@@ -191,16 +196,19 @@ http://example.com/france2.m3u8"""
             {"error": "Unknown error"},
         ]
 
-        result = analyze_failures(failed_streams)
-        assert result["Timeout"] == 1
-        assert result["404/Not Found"] == 1
-        assert result["403/Forbidden"] == 1
-        assert result["SSL/Certificate Error"] == 1
-        assert result["Other"] == 1
+        error_counts, method_counts = analyze_failures(failed_streams)
+        assert error_counts["Timeout"] == 1
+        assert error_counts["404/Not Found"] == 1
+        assert error_counts["403/Forbidden"] == 1
+        assert error_counts["SSL/Certificate Error"] == 1
+        assert error_counts["Other"] == 1
+        assert method_counts["unknown"] == len(failed_streams)
 
+    @patch("cleaner.get_tool_path")
     @patch("cleaner.subprocess.run")
-    def test_check_curl_availability_true(self, mock_run):
+    def test_check_curl_availability_true(self, mock_run, mock_get_tool_path):
         """Test curl availability check when curl is available"""
+        mock_get_tool_path.return_value = "/usr/bin/curl"
         mock_result = MagicMock()
         mock_result.returncode = 0
         mock_run.return_value = mock_result
@@ -208,9 +216,11 @@ http://example.com/france2.m3u8"""
         result = check_curl_availability()
         assert result is True
 
+    @patch("cleaner.get_tool_path")
     @patch("cleaner.subprocess.run")
-    def test_check_curl_availability_false(self, mock_run):
+    def test_check_curl_availability_false(self, mock_run, mock_get_tool_path):
         """Test curl availability check when curl is not available"""
+        mock_get_tool_path.return_value = "/usr/bin/curl"
         mock_run.side_effect = FileNotFoundError()
 
         result = check_curl_availability()

@@ -3,7 +3,7 @@
 Script de démonstration du nettoyeur de playlist TV
 """
 
-import subprocess
+import subprocess  # nosec B404
 import sys
 import os
 
@@ -15,7 +15,7 @@ def run_command(cmd, description):
     print("-" * 60)
 
     try:
-        result = subprocess.run(cmd, capture_output=True, text=True)
+        result = subprocess.run(cmd, capture_output=True, text=True)  # nosec B603
         if result.returncode == 0:
             print("✅ Succès")
             if result.stdout:
@@ -40,22 +40,25 @@ def main():
         print(f"  {i}. {filename} ({size:,} bytes)")
 
     # 1. Afficher les catégories disponibles
-    run_command(["python", "cleaner_config.py"], "Affichage des catégories disponibles")
+    run_command(
+        [sys.executable, "cleaner_config.py"],
+        "Affichage des catégories disponibles",
+    )
 
     # 2. Analyser les sources
-    run_command(["python", "sources_config.py"], "Configuration des sources M3U")
+    run_command([sys.executable, "sources_config.py"], "Configuration des sources M3U")
 
     # 3. Comparer les playlists existantes
     if len(m3u_files) >= 2:
         run_command(
-            ["python", "compare_playlists.py", m3u_files[0], m3u_files[1]],
+            [sys.executable, "compare_playlists.py", m3u_files[0], m3u_files[1]],
             f"Comparaison des playlists {m3u_files[0]} et {m3u_files[1]}",
         )
 
     # 4. Test rapide d'une playlist
     if m3u_files:
         run_command(
-            ["python", "-m", "pytest", "tests/", "-v"],
+            [sys.executable, "-m", "pytest", "tests/", "-v"],
             f"Tests de la playlist {m3u_files[0]}",
         )
 

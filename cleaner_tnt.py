@@ -22,7 +22,7 @@ from playlist_utils import (
     write_playlist,
     check_tool_availability,
     analyze_failures,
-    setup_logging
+    setup_logging,
 )
 
 # Sources M3U pour les chaînes françaises
@@ -369,7 +369,9 @@ def is_tnt_channel(channel_name: str) -> Optional[str]:
     return None
 
 
-def parse_m3u_tnt_filter(m3u_text: str, source_name: str = "Unknown") -> List[Dict[str, str]]:
+def parse_m3u_tnt_filter(
+    m3u_text: str, source_name: str = "Unknown"
+) -> List[Dict[str, str]]:
     """
     Parse M3U content and filter for TNT channels only.
 
@@ -412,15 +414,17 @@ def parse_m3u_tnt_filter(m3u_text: str, source_name: str = "Unknown") -> List[Di
                     normalized_name = normalize_channel_name(name)
                     stream_hash = hashlib.sha256(url.encode()).hexdigest()[:16]
 
-                    entries.append({
-                        "name": name,
-                        "tnt_name": tnt_channel,  # Official TNT name
-                        "normalized_name": normalized_name,
-                        "stream_hash": stream_hash,
-                        "info": info,
-                        "url": url,
-                        "source": source_name,
-                    })
+                    entries.append(
+                        {
+                            "name": name,
+                            "tnt_name": tnt_channel,  # Official TNT name
+                            "normalized_name": normalized_name,
+                            "stream_hash": stream_hash,
+                            "info": info,
+                            "url": url,
+                            "source": source_name,
+                        }
+                    )
         i += 1
 
     logger.debug(f"Found {len(entries)} TNT channels from {source_name}")
@@ -456,31 +460,19 @@ def parse_arguments() -> argparse.Namespace:
         description="Nettoyeur de playlist TV spécialisé pour les chaînes TNT françaises"
     )
     parser.add_argument(
-        "--output",
-        default="tnt_channels.m3u",
-        help="Fichier de sortie"
+        "--output", default="tnt_channels.m3u", help="Fichier de sortie"
     )
     parser.add_argument(
-        "--workers",
-        type=int,
-        default=10,
-        help="Nombre de workers parallèles (1-50)"
+        "--workers", type=int, default=10, help="Nombre de workers parallèles (1-50)"
     )
     parser.add_argument(
-        "--timeout",
-        type=int,
-        default=15,
-        help="Timeout en secondes (1-60)"
+        "--timeout", type=int, default=15, help="Timeout en secondes (1-60)"
     )
     parser.add_argument(
-        "--verbose",
-        action="store_true",
-        help="Mode verbeux (debug logging)"
+        "--verbose", action="store_true", help="Mode verbeux (debug logging)"
     )
     parser.add_argument(
-        "--sources",
-        nargs="+",
-        help="Sources M3U personnalisées (URLs)"
+        "--sources", nargs="+", help="Sources M3U personnalisées (URLs)"
     )
 
     args = parser.parse_args()
@@ -510,7 +502,9 @@ def main() -> None:
 
     # Use custom sources or default
     sources = args.sources if args.sources else M3U_SOURCES
-    logger.info(f"📥 Téléchargement de {len(sources)} playlists pour les chaînes TNT...")
+    logger.info(
+        f"📥 Téléchargement de {len(sources)} playlists pour les chaînes TNT..."
+    )
 
     all_entries: List[Dict[str, Any]] = []
 
@@ -551,7 +545,9 @@ def main() -> None:
         }
 
         # Process results with progress bar (as_completed for better performance)
-        with tqdm(total=len(all_entries), desc="Test des flux TNT", unit="flux") as pbar:
+        with tqdm(
+            total=len(all_entries), desc="Test des flux TNT", unit="flux"
+        ) as pbar:
             for future in as_completed(future_to_entry):
                 result = future.result()
                 results.append(result)
@@ -591,7 +587,9 @@ def main() -> None:
 
     # Select best quality for each TNT channel
     best_streams = filter_best_quality(working, deduplicate=True)
-    logger.info(f"🔝 {len(best_streams)} flux TNT sélectionnés avec la meilleure qualité.")
+    logger.info(
+        f"🔝 {len(best_streams)} flux TNT sélectionnés avec la meilleure qualité."
+    )
 
     # Show which TNT channels we have working streams for
     working_tnt_channels = set(entry.get("tnt_name") for entry in best_streams)
@@ -604,10 +602,14 @@ def main() -> None:
         # Show all TNT channels found
         logger.info("\n📺 Chaînes TNT disponibles:")
         # Sort by TNT channel name
-        sorted_streams = sorted(best_streams, key=lambda x: TNT_CHANNELS.index(x.get("tnt_name", "")))
+        sorted_streams = sorted(
+            best_streams, key=lambda x: TNT_CHANNELS.index(x.get("tnt_name", ""))
+        )
         for i, stream in enumerate(sorted_streams, 1):
             quality_info = (
-                f" ({stream.get('quality')})" if stream.get("quality") != "unknown" else ""
+                f" ({stream.get('quality')})"
+                if stream.get("quality") != "unknown"
+                else ""
             )
             resolution_info = ""
             if stream.get("width") and stream.get("height"):

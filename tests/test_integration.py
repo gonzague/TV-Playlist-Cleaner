@@ -23,7 +23,7 @@ class TestEndToEndFlow:
     @pytest.fixture
     def temp_output_file(self):
         """Create temporary output file."""
-        with tempfile.NamedTemporaryFile(mode='w', suffix='.m3u', delete=False) as f:
+        with tempfile.NamedTemporaryFile(mode="w", suffix=".m3u", delete=False) as f:
             yield f.name
         # Cleanup
         if os.path.exists(f.name):
@@ -41,29 +41,31 @@ http://example.com/france2/stream.m3u8
 http://example.com/m6/stream.m3u8
 """
 
-    @patch('playlist_utils.requests.get')
-    @patch('playlist_utils.subprocess.run')
-    def test_complete_workflow(self, mock_subprocess, mock_requests, sample_m3u_content, temp_output_file):
+    @patch("playlist_utils.requests.get")
+    @patch("playlist_utils.subprocess.run")
+    def test_complete_workflow(
+        self, mock_subprocess, mock_requests, sample_m3u_content, temp_output_file
+    ):
         """Test complete workflow from download to output."""
         from playlist_utils import (
             download_playlist,
             parse_m3u,
             check_stream_with_curl,
             filter_best_quality,
-            write_playlist
+            write_playlist,
         )
 
         # Mock download
         mock_response = Mock()
-        mock_response.headers = {'Content-Type': 'audio/x-mpegurl'}
-        mock_response.iter_content = lambda chunk_size, decode_unicode: [sample_m3u_content]
+        mock_response.headers = {"Content-Type": "audio/x-mpegurl"}
+        mock_response.iter_content = lambda chunk_size: [
+            sample_m3u_content.encode("utf-8")
+        ]
         mock_requests.return_value = mock_response
 
         # Mock curl validation (all streams working)
         mock_subprocess.return_value = Mock(
-            returncode=0,
-            stdout="HTTP/1.1 200 OK\nContent-Type: video/mp4\n",
-            stderr=""
+            returncode=0, stdout="HTTP/1.1 200 OK\nContent-Type: video/mp4\n", stderr=""
         )
 
         # Execute workflow
@@ -94,12 +96,12 @@ http://example.com/m6/stream.m3u8
         assert os.path.getsize(temp_output_file) > 0
 
         # Verify output format
-        with open(temp_output_file, 'r') as f:
+        with open(temp_output_file, "r") as f:
             content = f.read()
             assert "#EXTM3U" in content
             assert "TF1" in content or "France 2" in content
 
-    @patch('playlist_utils.requests.get')
+    @patch("playlist_utils.requests.get")
     def test_download_failure_handling(self, mock_requests):
         """Test handling of download failures."""
         from playlist_utils import download_playlist
@@ -130,11 +132,15 @@ class TestConcurrentProcessing:
     def mock_streams(self):
         """Create mock stream entries for testing."""
         return [
-            {"name": f"Channel {i}", "info": f"#EXTINF:-1,Channel {i}", "url": f"http://example.com/stream{i}"}
+            {
+                "name": f"Channel {i}",
+                "info": f"#EXTINF:-1,Channel {i}",
+                "url": f"http://example.com/stream{i}",
+            }
             for i in range(20)
         ]
 
-    @patch('playlist_utils.subprocess.run')
+    @patch("playlist_utils.subprocess.run")
     def test_concurrent_validation(self, mock_subprocess, mock_streams):
         """Test concurrent validation of multiple streams."""
         from playlist_utils import check_stream_with_curl
@@ -142,9 +148,7 @@ class TestConcurrentProcessing:
 
         # Mock successful validation
         mock_subprocess.return_value = Mock(
-            returncode=0,
-            stdout="HTTP/1.1 200 OK\n",
-            stderr=""
+            returncode=0, stdout="HTTP/1.1 200 OK\n", stderr=""
         )
 
         results = []
@@ -169,10 +173,38 @@ class TestQualitySelection:
         from playlist_utils import filter_best_quality
 
         streams = [
-            {"name": "TF1", "url": "http://a", "width": 854, "height": 480, "working": True, "quality": "480p"},
-            {"name": "TF1", "url": "http://b", "width": 1280, "height": 720, "working": True, "quality": "720p"},
-            {"name": "TF1", "url": "http://c", "width": 1920, "height": 1080, "working": True, "quality": "1080p"},
-            {"name": "France 2", "url": "http://d", "width": 1280, "height": 720, "working": True, "quality": "720p"},
+            {
+                "name": "TF1",
+                "url": "http://a",
+                "width": 854,
+                "height": 480,
+                "working": True,
+                "quality": "480p",
+            },
+            {
+                "name": "TF1",
+                "url": "http://b",
+                "width": 1280,
+                "height": 720,
+                "working": True,
+                "quality": "720p",
+            },
+            {
+                "name": "TF1",
+                "url": "http://c",
+                "width": 1920,
+                "height": 1080,
+                "working": True,
+                "quality": "1080p",
+            },
+            {
+                "name": "France 2",
+                "url": "http://d",
+                "width": 1280,
+                "height": 720,
+                "working": True,
+                "quality": "720p",
+            },
         ]
 
         result = filter_best_quality(streams, deduplicate=False)
@@ -186,7 +218,7 @@ class TestQualitySelection:
 class TestErrorRecovery:
     """Test error recovery and resilience."""
 
-    @patch('playlist_utils.subprocess.run')
+    @patch("playlist_utils.subprocess.run")
     def test_partial_failure_recovery(self, mock_subprocess):
         """Test recovery from partial stream validation failures."""
         from playlist_utils import check_stream_with_curl
@@ -199,9 +231,21 @@ class TestErrorRecovery:
         ]
 
         entries = [
-            {"name": "Stream1", "info": "#EXTINF:-1,Stream1", "url": "http://example.com/1"},
-            {"name": "Stream2", "info": "#EXTINF:-1,Stream2", "url": "http://example.com/2"},
-            {"name": "Stream3", "info": "#EXTINF:-1,Stream3", "url": "http://example.com/3"},
+            {
+                "name": "Stream1",
+                "info": "#EXTINF:-1,Stream1",
+                "url": "http://example.com/1",
+            },
+            {
+                "name": "Stream2",
+                "info": "#EXTINF:-1,Stream2",
+                "url": "http://example.com/2",
+            },
+            {
+                "name": "Stream3",
+                "info": "#EXTINF:-1,Stream3",
+                "url": "http://example.com/3",
+            },
         ]
 
         results = [check_stream_with_curl(entry, 5) for entry in entries]
@@ -252,7 +296,7 @@ class TestPerformance:
     """Test performance-related aspects (marked as slow)."""
 
     @pytest.mark.slow
-    @patch('playlist_utils.subprocess.run')
+    @patch("playlist_utils.subprocess.run")
     def test_large_playlist_processing(self, mock_subprocess):
         """Test processing of large playlists."""
         from playlist_utils import parse_m3u
@@ -270,7 +314,7 @@ class TestPerformance:
         assert len(entries) == num_entries
 
     @pytest.mark.slow
-    @patch('playlist_utils.subprocess.run')
+    @patch("playlist_utils.subprocess.run")
     def test_concurrent_performance(self, mock_subprocess):
         """Test concurrent processing performance."""
         from playlist_utils import check_stream_with_curl
@@ -278,13 +322,15 @@ class TestPerformance:
         import time
 
         mock_subprocess.return_value = Mock(
-            returncode=0,
-            stdout="HTTP/1.1 200 OK\n",
-            stderr=""
+            returncode=0, stdout="HTTP/1.1 200 OK\n", stderr=""
         )
 
         entries = [
-            {"name": f"Stream{i}", "info": f"#EXTINF:-1,Stream{i}", "url": f"http://example.com/{i}"}
+            {
+                "name": f"Stream{i}",
+                "info": f"#EXTINF:-1,Stream{i}",
+                "url": f"http://example.com/{i}",
+            }
             for i in range(100)
         ]
 
@@ -313,10 +359,10 @@ class TestSecurityValidation:
         from playlist_utils import validate_url, check_stream_with_curl
 
         malicious_urls = [
-            "http://example.com;rm -rf /",
+            "http://example.com/path with spaces",
             "http://example.com|whoami",
             "http://example.com`id`",
-            "http://example.com$(whoami)",
+            "http://example.com\nmalicious",
         ]
 
         for url in malicious_urls:
@@ -334,7 +380,12 @@ class TestSecurityValidation:
         from playlist_utils import write_playlist
 
         entries = [
-            {"name": "Test", "info": "#EXTINF:-1,Test", "url": "http://test", "quality": "unknown"}
+            {
+                "name": "Test",
+                "info": "#EXTINF:-1,Test",
+                "url": "http://test",
+                "quality": "unknown",
+            }
         ]
 
         # Normal file should work

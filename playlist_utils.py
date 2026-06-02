@@ -7,12 +7,13 @@ and processing M3U playlists.
 """
 
 import re
-import subprocess
+import subprocess  # nosec B404
 import hashlib
 import logging
 import json
 import shutil
 import os
+import ipaddress
 from typing import List, Dict, Optional, Tuple, Any
 from collections import defaultdict
 from urllib.parse import urlparse
@@ -23,16 +24,40 @@ logger = logging.getLogger(__name__)
 
 # Constants
 MAX_PLAYLIST_SIZE = 50 * 1024 * 1024  # 50MB
-ALLOWED_SCHEMES = ('http', 'https')
-# Only block characters that could truly break things when passed to subprocess
-# We pass URLs as list arguments (not shell strings), so most special chars are safe
-# Only newlines and null bytes can cause real issues with argument parsing
-DANGEROUS_CHARS = ['\n', '\r', '\0']
+ALLOWED_SCHEMES = ("http", "https")
+INVALID_URL_CHARS = set(' \t\n\r\0<>"{}|\\^`')
 
 # Quality thresholds
 RESOLUTION_1080P = 1920
 RESOLUTION_720P = 1280
 RESOLUTION_480P = 854
+
+
+def _is_valid_hostname(hostname: Optional[str]) -> bool:
+    """Validate DNS names and IP literals accepted in playlist URLs."""
+    if not hostname:
+        return False
+
+    if hostname == "localhost":
+        return True
+
+    try:
+        ipaddress.ip_address(hostname)
+        return True
+    except ValueError:
+        pass
+
+    try:
+        ascii_hostname = hostname.encode("idna").decode("ascii")
+    except UnicodeError:
+        return False
+
+    if len(ascii_hostname) > 253:
+        return False
+
+    labels = ascii_hostname.rstrip(".").split(".")
+    label_pattern = re.compile(r"^[A-Za-z0-9](?:[A-Za-z0-9-]{0,61}[A-Za-z0-9])?$")
+    return all(label_pattern.match(label) for label in labels)
 
 
 def validate_url(url: str) -> bool:
@@ -63,14 +88,21 @@ def validate_url(url: str) -> bool:
             logger.warning(f"Invalid URL scheme: {parsed.scheme}")
             return False
 
-        # Prevent command injection via special characters
-        if any(char in url for char in DANGEROUS_CHARS):
-            logger.warning(f"URL contains dangerous characters: {url}")
+        # Reject raw characters that are not valid in URLs. Query separators such
+        # as "&" remain allowed because URLs are passed to subprocess as argv.
+        if any(char in INVALID_URL_CHARS for char in url):
+            logger.warning(f"URL contains invalid characters: {url}")
             return False
 
-        # Must have netloc (domain)
-        if not parsed.netloc:
+        # Must have a valid network location.
+        if not parsed.netloc or not _is_valid_hostname(parsed.hostname):
             logger.warning(f"URL missing domain: {url}")
+            return False
+
+        try:
+            parsed.port
+        except ValueError:
+            logger.warning(f"URL contains invalid port: {url}")
             return False
 
         return True
@@ -105,30 +137,37 @@ def download_playlist(url: str, timeout: int = 30) -> Optional[str]:
             url,
             timeout=timeout,
             stream=True,
-            headers={'User-Agent': 'TV-Playlist-Cleaner/1.0'}
+            headers={"User-Agent": "TV-Playlist-Cleaner/1.0"},
         )
         response.raise_for_status()
 
         # Check content type
-        content_type = response.headers.get('Content-Type', '')
-        if content_type and 'audio/x-mpegurl' not in content_type and 'text/plain' not in content_type and 'application/vnd.apple.mpegurl' not in content_type:
+        content_type = response.headers.get("Content-Type", "")
+        if (
+            content_type
+            and "audio/x-mpegurl" not in content_type
+            and "text/plain" not in content_type
+            and "application/vnd.apple.mpegurl" not in content_type
+        ):
             logger.warning(f"Unexpected content type: {content_type}")
 
         # Check size
-        content_length = response.headers.get('Content-Length')
+        content_length = response.headers.get("Content-Length")
         if content_length and int(content_length) > MAX_PLAYLIST_SIZE:
             raise ValueError(f"Playlist too large: {content_length} bytes")
 
         # Download with size limit
-        content = b''
+        content = bytearray()
         for chunk in response.iter_content(chunk_size=8192):
             if chunk:  # filter out keep-alive chunks
+                if isinstance(chunk, str):
+                    chunk = chunk.encode("utf-8")
                 if len(content) + len(chunk) > MAX_PLAYLIST_SIZE:
                     raise ValueError("Playlist exceeds size limit")
-                content += chunk
+                content.extend(chunk)
 
         # Decode to string
-        result = content.decode('utf-8', errors='replace')
+        result = bytes(content).decode("utf-8", errors="replace")
         logger.info(f"Successfully downloaded {len(result)} bytes")
         return result
 
@@ -194,10 +233,7 @@ def parse_m3u(m3u_text: str) -> List[Dict[str, str]]:
     return entries
 
 
-def check_stream_with_curl(
-    entry: Dict[str, str],
-    timeout: int = 15
-) -> Dict[str, Any]:
+def check_stream_with_curl(entry: Dict[str, str], timeout: int = 15) -> Dict[str, Any]:
     """
     Use curl to check if the stream works and get basic information.
 
@@ -220,7 +256,7 @@ def check_stream_with_curl(
             "width": 0,
             "height": 0,
             "error": "Invalid URL",
-            "method": "validation"
+            "method": "validation",
         }
 
     try:
@@ -235,9 +271,9 @@ def check_stream_with_curl(
                 "width": 0,
                 "height": 0,
                 "error": "curl not found",
-                "method": "validation"
+                "method": "validation",
             }
-        
+
         # Use curl to check if the stream is accessible
         cmd = [
             curl_path,  # Use full path instead of just "curl"
@@ -251,7 +287,7 @@ def check_stream_with_curl(
             url,
         ]
 
-        result = subprocess.run(
+        result = subprocess.run(  # nosec B603
             cmd, capture_output=True, text=True, timeout=timeout + 5
         )
 
@@ -293,7 +329,7 @@ def check_stream_with_curl(
                 "width": width,
                 "height": height,
                 "content_type": content_type,
-                "method": "curl"
+                "method": "curl",
             }
 
         # If we get here, the stream failed
@@ -306,7 +342,7 @@ def check_stream_with_curl(
             "width": 0,
             "height": 0,
             "error": error_msg,
-            "method": "curl"
+            "method": "curl",
         }
 
     except subprocess.TimeoutExpired:
@@ -318,7 +354,7 @@ def check_stream_with_curl(
             "width": 0,
             "height": 0,
             "error": "Timeout",
-            "method": "curl"
+            "method": "curl",
         }
     except Exception as e:
         logger.error(f"Error checking stream {entry['name']}", exc_info=True)
@@ -329,13 +365,12 @@ def check_stream_with_curl(
             "width": 0,
             "height": 0,
             "error": str(e),
-            "method": "curl"
+            "method": "curl",
         }
 
 
 def check_stream_with_ffprobe(
-    entry: Dict[str, str],
-    timeout: int = 15
+    entry: Dict[str, str], timeout: int = 15
 ) -> Dict[str, Any]:
     """
     Check direct stream URLs using ffprobe.
@@ -359,7 +394,7 @@ def check_stream_with_ffprobe(
             "width": 0,
             "height": 0,
             "error": "Invalid URL",
-            "method": "validation"
+            "method": "validation",
         }
 
     try:
@@ -374,9 +409,9 @@ def check_stream_with_ffprobe(
                 "width": 0,
                 "height": 0,
                 "error": "ffprobe not found",
-                "method": "validation"
+                "method": "validation",
             }
-        
+
         # Use ffprobe to check if the stream is valid and get stream info
         cmd = [
             ffprobe_path,  # Use full path instead of just "ffprobe"
@@ -395,7 +430,9 @@ def check_stream_with_ffprobe(
             url,
         ]
 
-        result = subprocess.run(cmd, capture_output=True, text=True, timeout=timeout + 5)
+        result = subprocess.run(  # nosec B603
+            cmd, capture_output=True, text=True, timeout=timeout + 5
+        )
 
         if result.returncode == 0 and result.stdout.strip():
             try:
@@ -521,8 +558,7 @@ def extract_resolution_from_quality(quality_str: str) -> Dict[str, int]:
 
 
 def filter_best_quality(
-    entries: List[Dict[str, Any]],
-    deduplicate: bool = True
+    entries: List[Dict[str, Any]], deduplicate: bool = True
 ) -> List[Dict[str, Any]]:
     """
     Group streams by name and select the best quality for each.
@@ -583,8 +619,7 @@ def filter_best_quality(
 
 
 def write_playlist(
-    entries: List[Dict[str, Any]],
-    output_file: str = "filtered.m3u"
+    entries: List[Dict[str, Any]], output_file: str = "filtered.m3u"
 ) -> None:
     """
     Write the filtered playlist to an M3U file.
@@ -604,7 +639,11 @@ def write_playlist(
         )
         f.write(f"# Total: {len(entries)} flux valides\n")
 
-        qualities = set(e.get('quality', 'unknown') for e in entries if e.get('quality') != 'unknown')
+        qualities = set(
+            e.get("quality", "unknown")
+            for e in entries
+            if e.get("quality") != "unknown"
+        )
         if qualities:
             f.write(f"# Qualités détectées: {', '.join(sorted(qualities))}\n")
         f.write("\n")
@@ -634,23 +673,23 @@ def get_tool_path(tool_name: str) -> Optional[str]:
     # First try to find the tool using shutil.which()
     # This searches the PATH and returns the full path if found
     tool_path = shutil.which(tool_name)
-    
+
     if tool_path:
         logger.debug(f"Found {tool_name} at: {tool_path}")
         return tool_path
-    
+
     # If not found in PATH, try common locations (especially for Homebrew on macOS)
     common_paths = [
         f"/usr/local/bin/{tool_name}",
         f"/opt/homebrew/bin/{tool_name}",
         f"/usr/bin/{tool_name}",
     ]
-    
+
     for path in common_paths:
         if os.path.isfile(path) and os.access(path, os.X_OK):
             logger.debug(f"Found {tool_name} at: {path}")
             return path
-    
+
     logger.debug(f"{tool_name} not found in PATH or common locations")
     return None
 
@@ -668,7 +707,9 @@ def check_tool_availability(tool_name: str) -> bool:
     return get_tool_path(tool_name) is not None
 
 
-def analyze_failures(failed_streams: List[Dict[str, Any]]) -> Tuple[Dict[str, int], Dict[str, int]]:
+def analyze_failures(
+    failed_streams: List[Dict[str, Any]],
+) -> Tuple[Dict[str, int], Dict[str, int]]:
     """
     Analyze why streams are failing and provide insights.
 
@@ -722,9 +763,9 @@ def setup_logging(verbose: bool = False, log_file: Optional[str] = None) -> None
     level = logging.DEBUG if verbose else logging.INFO
 
     # Create formatters
-    console_formatter = logging.Formatter('%(message)s')
+    console_formatter = logging.Formatter("%(message)s")
     file_formatter = logging.Formatter(
-        '%(asctime)s - %(name)s - %(levelname)s - %(message)s'
+        "%(asctime)s - %(name)s - %(levelname)s - %(message)s"
     )
 
     # Console handler (always)
@@ -742,9 +783,6 @@ def setup_logging(verbose: bool = False, log_file: Optional[str] = None) -> None
         handlers.append(file_handler)
 
     # Configure root logger
-    logging.basicConfig(
-        level=level,
-        handlers=handlers
-    )
+    logging.basicConfig(level=level, handlers=handlers)
 
     logger.info("Logging configured")

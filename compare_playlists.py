@@ -15,7 +15,7 @@ from collections import defaultdict
 from typing import List, Dict, Set, Optional, Tuple
 
 # Configure logging
-logging.basicConfig(level=logging.INFO, format='%(message)s')
+logging.basicConfig(level=logging.INFO, format="%(message)s")
 logger = logging.getLogger(__name__)
 
 
@@ -64,12 +64,14 @@ def parse_playlist(filename: str) -> List[Dict[str, str]]:
                 group_match = re.search(r'group-title="([^"]+)"', info_line)
                 group = group_match.group(1) if group_match else "General"
 
-                channels.append({
-                    "name": name,
-                    "quality": quality,
-                    "group": group,
-                    "url": url_lines[i].strip(),
-                })
+                channels.append(
+                    {
+                        "name": name,
+                        "quality": quality,
+                        "group": group,
+                        "url": url_lines[i].strip(),
+                    }
+                )
 
         logger.debug(f"Parsed {len(channels)} channels from {filename}")
         return channels
@@ -85,7 +87,9 @@ def parse_playlist(filename: str) -> List[Dict[str, str]]:
         return []
 
 
-def analyze_playlist(channels: List[Dict[str, str]], filename: str) -> Optional[Dict[str, any]]:
+def analyze_playlist(
+    channels: List[Dict[str, str]], filename: str
+) -> Optional[Dict[str, any]]:
     """
     Analyze a playlist and display statistics.
 
@@ -141,7 +145,7 @@ def analyze_playlist(channels: List[Dict[str, str]], filename: str) -> Optional[
 
 
 def find_common_channels(
-    all_channels: Dict[str, List[Dict[str, str]]]
+    all_channels: Dict[str, List[Dict[str, str]]],
 ) -> Tuple[Set[str], Dict[str, Set[str]]]:
     """
     Find common and unique channels across playlists.
@@ -168,7 +172,9 @@ def find_common_channels(
     unique_per_playlist = {}
     for filename, channels in channel_sets.items():
         # Channels only in this playlist
-        other_channels = set.union(*(s for f, s in channel_sets.items() if f != filename))
+        other_channels = set.union(
+            *(s for f, s in channel_sets.items() if f != filename)
+        )
         unique_per_playlist[filename] = channels - other_channels
 
     return common, unique_per_playlist
@@ -199,7 +205,9 @@ def compare_playlists(files: List[str]) -> None:
         return
 
     if len(results) < 2:
-        logger.warning("\n⚠️  Au moins 2 playlists sont nécessaires pour la comparaison")
+        logger.warning(
+            "\n⚠️  Au moins 2 playlists sont nécessaires pour la comparaison"
+        )
         return
 
     # Comparison
@@ -234,8 +242,12 @@ def compare_playlists(files: List[str]) -> None:
     logger.info(f"\n  🎯 Comparaison des qualités:")
     for filename, stats in results.items():
         if stats and stats["qualities"]:
-            best_quality = max(stats["qualities"].items(), key=lambda x: (x[0] != "unknown", x[1]))
-            logger.info(f"    {filename}: {best_quality[1]} chaînes en {best_quality[0]}")
+            best_quality = max(
+                stats["qualities"].items(), key=lambda x: (x[0] != "unknown", x[1])
+            )
+            logger.info(
+                f"    {filename}: {best_quality[1]} chaînes en {best_quality[0]}"
+            )
 
 
 def list_available_playlists() -> List[Tuple[str, int]]:
@@ -291,7 +303,9 @@ def main() -> None:
         sys.exit(1)
 
     if len(valid_files) < 2:
-        logger.warning("\n⚠️  Un seul fichier fourni, affichage de l'analyse uniquement")
+        logger.warning(
+            "\n⚠️  Un seul fichier fourni, affichage de l'analyse uniquement"
+        )
 
     compare_playlists(valid_files)
 

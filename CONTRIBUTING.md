@@ -43,10 +43,8 @@ curl -LsSf https://astral.sh/uv/install.sh | sh
 # Windows:
 # powershell -c "irm https://astral.sh/uv/install.ps1 | iex"
 
-# Créez un environnement virtuel et installez les dépendances
-uv venv
-source .venv/bin/activate  # Sur Windows: .venv\Scripts\activate
-uv pip install "requests>=2.25.0" "tqdm>=4.60.0" "pytest>=6.0" "pytest-cov>=2.0" "flake8>=3.8" "black>=21.0" "bandit>=1.6"
+# Créez l'environnement virtuel et installez les dépendances de développement
+uv sync --extra dev
 ```
 
 ### 4. Développez
@@ -58,12 +56,12 @@ uv pip install "requests>=2.25.0" "tqdm>=4.60.0" "pytest>=6.0" "pytest-cov>=2.0"
 ### 5. Testez
 
 ```bash
-# Testez votre playlist
-python -m pytest tests/ -v
+# Lancez les tests
+uv run pytest tests/ -v
 
 # Testez avec différentes options
-python cleaner_config.py french
-python cleaner_tnt.py
+uv run python cleaner_config.py french
+uv run python cleaner_tnt.py
 ```
 
 ### 6. Commit et Push
@@ -92,9 +90,7 @@ git push origin feature/nouvelle-fonctionnalite
 ### Installation des Dépendances
 
 ```bash
-uv venv
-source .venv/bin/activate  # Sur Windows: .venv\Scripts\activate
-uv pip install "requests>=2.25.0" "tqdm>=4.60.0" "pytest>=6.0" "pytest-cov>=2.0" "flake8>=3.8" "black>=21.0" "bandit>=1.6"
+uv sync --extra dev
 ```
 
 ### Installation de curl
@@ -167,10 +163,10 @@ python cleaner.py
 python cleaner_advanced.py
 
 # Test TNT
-python cleaner_tnt.py
+uv run python cleaner_tnt.py
 
 # Test de validation
-python -m pytest tests/ -v
+uv run pytest tests/ -v
 ```
 
 ### Tests Automatisés
@@ -180,7 +176,7 @@ Si vous ajoutez des tests automatisés :
 ```bash
 # pytest est déjà installé avec les dépendances dev
 # Lancez les tests
-pytest tests/
+uv run pytest tests/
 ```
 
 ## 🔄 Pull Request
@@ -278,4 +274,4 @@ Merci à tous les contributeurs qui participent à l'amélioration de ce projet 
 
 ---
 
-N'hésitez pas à contribuer, même pour de petites améliorations ! Chaque contribution compte. 🚀 
+N'hésitez pas à contribuer, même pour de petites améliorations ! Chaque contribution compte. 🚀

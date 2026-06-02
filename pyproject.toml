@@ -111,7 +111,7 @@ exclude_lines = [
 ]
 
 [tool.bandit]
-exclude_dirs = ["tests"]
+exclude_dirs = ["tests", ".venv", "htmlcov", ".pytest_cache"]
 # B101: assert_used - Allow asserts in tests
 # Removed B601 (shell injection) - now properly validated
 skips = ["B101"]
@@ -122,4 +122,4 @@ exclude = ["tests/*"]
 
 [tool.hatch.build.targets.sdist]
 only-include = ["*.py", "pyproject.toml"]
-exclude = ["tests/*"] 
+exclude = ["tests/*"]

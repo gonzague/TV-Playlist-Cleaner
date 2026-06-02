@@ -4,6 +4,7 @@ Basic TV playlist cleaner using curl for stream validation.
 """
 
 import logging
+import subprocess  # nosec B404
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from typing import List, Dict, Any
 from tqdm import tqdm
@@ -13,11 +14,13 @@ from playlist_utils import (
     download_playlist,
     parse_m3u,
     check_stream_with_curl,
+    extract_resolution_from_quality,
     filter_best_quality,
     write_playlist,
     check_tool_availability,
+    get_tool_path,
     analyze_failures,
-    setup_logging
+    setup_logging,
 )
 
 # Configuration
@@ -26,6 +29,24 @@ TIMEOUT = 15  # seconds
 MAX_WORKERS = 10
 
 logger = logging.getLogger(__name__)
+
+
+def check_curl_availability() -> bool:
+    """Backward-compatible helper for callers that imported it from cleaner."""
+    curl_path = get_tool_path("curl")
+    if not curl_path:
+        return False
+
+    try:
+        result = subprocess.run(  # nosec B603
+            [curl_path, "--version"],
+            capture_output=True,
+            text=True,
+            timeout=5,
+        )
+        return result.returncode == 0
+    except (FileNotFoundError, subprocess.TimeoutExpired):
+        return False
 
 
 def main() -> None:
@@ -98,7 +119,7 @@ def main() -> None:
         # Show some example errors
         logger.info("\n📋 Exemples d'erreurs:")
         for i, stream in enumerate(failed[:3]):
-            error_msg = stream.get('error', 'Unknown error')[:100]
+            error_msg = stream.get("error", "Unknown error")[:100]
             logger.info(f"  {stream['name']}: {error_msg}...")
 
     if working:
@@ -120,7 +141,9 @@ def main() -> None:
         logger.info("\n📺 Exemples de flux sélectionnés:")
         for i, stream in enumerate(best_streams[:5]):  # Show first 5
             quality_info = (
-                f" ({stream.get('quality')})" if stream.get("quality") != "unknown" else ""
+                f" ({stream.get('quality')})"
+                if stream.get("quality") != "unknown"
+                else ""
             )
             logger.info(f"  {i+1}. {stream['name']}{quality_info}")
         if len(best_streams) > 5:

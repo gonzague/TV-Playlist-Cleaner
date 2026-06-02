@@ -29,7 +29,7 @@ Fixes #(issue)
 ```bash
 # Commandes de test utilisées
 python cleaner_config.py french --direct-only
-python -m pytest tests/ -v
+uv run pytest tests/ -v
 ```
 
 ## 📋 Checklist
@@ -67,4 +67,4 @@ Si applicable, ajoutez des captures d'écran pour montrer les changements visuel
 
 ## 📝 Notes Supplémentaires
 
-Ajoutez tout autre contexte ou note sur les changements ici. 
+Ajoutez tout autre contexte ou note sur les changements ici.

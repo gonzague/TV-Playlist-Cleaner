@@ -12,9 +12,11 @@ COPY --from=ghcr.io/astral-sh/uv:latest /uv /usr/local/bin/uv
 
 # Définir le répertoire de travail
 WORKDIR /app
+ENV PATH="/app/.venv/bin:$PATH"
 
-# Installer les dépendances Python avec UV
-RUN uv pip install --system "requests>=2.25.0" "tqdm>=4.60.0"
+# Installer les dépendances Python verrouillées avec UV
+COPY pyproject.toml uv.lock ./
+RUN uv sync --frozen --no-dev --no-install-project
 
 # Copier le code source
 COPY *.py ./
@@ -28,4 +30,4 @@ ENV PYTHONUNBUFFERED=1
 ENV PYTHONDONTWRITEBYTECODE=1
 
 # Point d'entrée par défaut
-CMD ["python", "cleaner.py"] 
+CMD ["python", "cleaner.py"]

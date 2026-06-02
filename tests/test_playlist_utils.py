@@ -51,14 +51,17 @@ class TestURLValidation:
         assert validate_url("file:///etc/passwd") is False
         assert validate_url("javascript:alert(1)") is False
 
-    def test_dangerous_characters(self):
-        """Test rejection of URLs with dangerous characters."""
-        assert validate_url("http://test.com;rm -rf /") is False
+    def test_invalid_characters(self):
+        """Test rejection of malformed URLs with invalid raw characters."""
+        assert validate_url("http://test.com/path with spaces") is False
         assert validate_url("http://test.com|whoami") is False
-        assert validate_url("http://test.com&id") is False
         assert validate_url("http://test.com`id`") is False
-        assert validate_url("http://test.com$(whoami)") is False
         assert validate_url("http://test.com\nmalicious") is False
+
+    def test_common_query_delimiters(self):
+        """Test that valid playlist query delimiters are accepted."""
+        assert validate_url("http://test.com/stream.m3u8?token=a&quality=hd") is True
+        assert validate_url("http://test.com/stream;variant=hd.m3u8") is True
 
     def test_empty_and_invalid_input(self):
         """Test handling of empty and invalid input."""
@@ -75,40 +78,47 @@ class TestURLValidation:
 class TestDownloadPlaylist:
     """Test playlist download function."""
 
-    @patch('playlist_utils.requests.get')
+    @patch("playlist_utils.requests.get")
     def test_successful_download(self, mock_get):
         """Test successful playlist download."""
         mock_response = Mock()
-        mock_response.headers = {'Content-Type': 'audio/x-mpegurl'}
-        mock_response.iter_content = lambda chunk_size, decode_unicode: ['#EXTM3U\n', '#EXTINF:-1,Test\nhttp://test']
+        mock_response.headers = {"Content-Type": "audio/x-mpegurl"}
+        mock_response.iter_content = lambda chunk_size: [
+            b"#EXTM3U\n",
+            b"#EXTINF:-1,Test\nhttp://test",
+        ]
         mock_get.return_value = mock_response
 
         result = download_playlist("http://example.com/playlist.m3u")
         assert result == "#EXTM3U\n#EXTINF:-1,Test\nhttp://test"
         mock_get.assert_called_once()
 
-    @patch('playlist_utils.requests.get')
+    @patch("playlist_utils.requests.get")
     def test_download_timeout(self, mock_get):
         """Test handling of download timeout."""
         import requests
+
         mock_get.side_effect = requests.exceptions.Timeout()
 
         result = download_playlist("http://example.com/playlist.m3u")
         assert result is None
 
-    @patch('playlist_utils.requests.get')
+    @patch("playlist_utils.requests.get")
     def test_download_http_error(self, mock_get):
         """Test handling of HTTP errors."""
         import requests
+
         mock_response = Mock()
         mock_response.status_code = 404
-        mock_response.raise_for_status.side_effect = requests.exceptions.HTTPError(response=mock_response)
+        mock_response.raise_for_status.side_effect = requests.exceptions.HTTPError(
+            response=mock_response
+        )
         mock_get.return_value = mock_response
 
         result = download_playlist("http://example.com/playlist.m3u")
         assert result is None
 
-    @patch('playlist_utils.validate_url')
+    @patch("playlist_utils.validate_url")
     def test_download_invalid_url(self, mock_validate):
         """Test rejection of invalid URLs."""
         mock_validate.return_value = False
@@ -116,15 +126,15 @@ class TestDownloadPlaylist:
         result = download_playlist("invalid://url")
         assert result is None
 
-    @patch('playlist_utils.requests.get')
+    @patch("playlist_utils.requests.get")
     def test_download_size_limit(self, mock_get):
         """Test enforcement of size limits."""
         from playlist_utils import MAX_PLAYLIST_SIZE
 
         mock_response = Mock()
         mock_response.headers = {
-            'Content-Type': 'text/plain',
-            'Content-Length': str(MAX_PLAYLIST_SIZE + 1)
+            "Content-Type": "text/plain",
+            "Content-Length": str(MAX_PLAYLIST_SIZE + 1),
         }
         mock_get.return_value = mock_response
 
@@ -198,7 +208,7 @@ http://example.com/stream2"""
 class TestStreamValidation:
     """Test stream validation functions."""
 
-    @patch('playlist_utils.validate_url')
+    @patch("playlist_utils.validate_url")
     def test_curl_validation_invalid_url(self, mock_validate):
         """Test curl validation rejects invalid URLs."""
         mock_validate.return_value = False
@@ -209,18 +219,20 @@ class TestStreamValidation:
         assert result["working"] is False
         assert "Invalid URL" in result["error"]
 
-    @patch('playlist_utils.validate_url')
-    @patch('playlist_utils.subprocess.run')
+    @patch("playlist_utils.validate_url")
+    @patch("playlist_utils.subprocess.run")
     def test_curl_validation_success(self, mock_run, mock_validate):
         """Test successful curl validation."""
         mock_validate.return_value = True
         mock_run.return_value = Mock(
-            returncode=0,
-            stdout="HTTP/1.1 200 OK\nContent-Type: video/mp4\n",
-            stderr=""
+            returncode=0, stdout="HTTP/1.1 200 OK\nContent-Type: video/mp4\n", stderr=""
         )
 
-        entry = {"name": "Test", "info": "#EXTINF:-1,Test", "url": "http://example.com/1080p/stream"}
+        entry = {
+            "name": "Test",
+            "info": "#EXTINF:-1,Test",
+            "url": "http://example.com/1080p/stream",
+        }
         result = check_stream_with_curl(entry, timeout=5)
 
         assert result["working"] is True
@@ -228,39 +240,41 @@ class TestStreamValidation:
         assert result["width"] == RESOLUTION_1080P
         assert result["method"] == "curl"
 
-    @patch('playlist_utils.validate_url')
-    @patch('playlist_utils.subprocess.run')
+    @patch("playlist_utils.validate_url")
+    @patch("playlist_utils.subprocess.run")
     def test_curl_validation_timeout(self, mock_run, mock_validate):
         """Test curl validation timeout handling."""
         mock_validate.return_value = True
         mock_run.side_effect = subprocess.TimeoutExpired(cmd=[], timeout=5)
 
-        entry = {"name": "Test", "info": "#EXTINF:-1,Test", "url": "http://example.com/stream"}
+        entry = {
+            "name": "Test",
+            "info": "#EXTINF:-1,Test",
+            "url": "http://example.com/stream",
+        }
         result = check_stream_with_curl(entry, timeout=5)
 
         assert result["working"] is False
         assert result["error"] == "Timeout"
 
-    @patch('playlist_utils.validate_url')
-    @patch('playlist_utils.subprocess.run')
+    @patch("playlist_utils.validate_url")
+    @patch("playlist_utils.subprocess.run")
     def test_ffprobe_validation_success(self, mock_run, mock_validate):
         """Test successful ffprobe validation."""
         mock_validate.return_value = True
 
         stream_info = {
-            "streams": [{
-                "codec_type": "video",
-                "width": 1920,
-                "height": 1080
-            }]
+            "streams": [{"codec_type": "video", "width": 1920, "height": 1080}]
         }
         mock_run.return_value = Mock(
-            returncode=0,
-            stdout=json.dumps(stream_info),
-            stderr=""
+            returncode=0, stdout=json.dumps(stream_info), stderr=""
         )
 
-        entry = {"name": "Test", "info": "#EXTINF:-1,Test", "url": "http://example.com/stream"}
+        entry = {
+            "name": "Test",
+            "info": "#EXTINF:-1,Test",
+            "url": "http://example.com/stream",
+        }
         result = check_stream_with_ffprobe(entry, timeout=5)
 
         assert result["working"] is True
@@ -269,26 +283,24 @@ class TestStreamValidation:
         assert result["height"] == 1080
         assert result["method"] == "ffprobe"
 
-    @patch('playlist_utils.validate_url')
-    @patch('playlist_utils.subprocess.run')
+    @patch("playlist_utils.validate_url")
+    @patch("playlist_utils.subprocess.run")
     def test_ffprobe_validation_720p(self, mock_run, mock_validate):
         """Test ffprobe detection of 720p quality."""
         mock_validate.return_value = True
 
         stream_info = {
-            "streams": [{
-                "codec_type": "video",
-                "width": 1280,
-                "height": 720
-            }]
+            "streams": [{"codec_type": "video", "width": 1280, "height": 720}]
         }
         mock_run.return_value = Mock(
-            returncode=0,
-            stdout=json.dumps(stream_info),
-            stderr=""
+            returncode=0, stdout=json.dumps(stream_info), stderr=""
         )
 
-        entry = {"name": "Test", "info": "#EXTINF:-1,Test", "url": "http://example.com/stream"}
+        entry = {
+            "name": "Test",
+            "info": "#EXTINF:-1,Test",
+            "url": "http://example.com/stream",
+        }
         result = check_stream_with_ffprobe(entry, timeout=5)
 
         assert result["quality"] == "720p"
@@ -328,9 +340,27 @@ class TestFilterBestQuality:
     def test_filter_single_stream_per_channel(self):
         """Test filtering keeps one stream per channel."""
         streams = [
-            {"name": "TF1", "url": "http://a", "width": 1920, "height": 1080, "working": True},
-            {"name": "TF1", "url": "http://b", "width": 1280, "height": 720, "working": True},
-            {"name": "M6", "url": "http://c", "width": 1920, "height": 1080, "working": True},
+            {
+                "name": "TF1",
+                "url": "http://a",
+                "width": 1920,
+                "height": 1080,
+                "working": True,
+            },
+            {
+                "name": "TF1",
+                "url": "http://b",
+                "width": 1280,
+                "height": 720,
+                "working": True,
+            },
+            {
+                "name": "M6",
+                "url": "http://c",
+                "width": 1920,
+                "height": 1080,
+                "working": True,
+            },
         ]
 
         result = filter_best_quality(streams, deduplicate=False)
@@ -343,8 +373,20 @@ class TestFilterBestQuality:
     def test_filter_skip_non_working(self):
         """Test filtering skips non-working streams."""
         streams = [
-            {"name": "TF1", "url": "http://a", "width": 1920, "height": 1080, "working": False},
-            {"name": "M6", "url": "http://b", "width": 1280, "height": 720, "working": True},
+            {
+                "name": "TF1",
+                "url": "http://a",
+                "width": 1920,
+                "height": 1080,
+                "working": False,
+            },
+            {
+                "name": "M6",
+                "url": "http://b",
+                "width": 1280,
+                "height": 720,
+                "working": True,
+            },
         ]
 
         result = filter_best_quality(streams)
@@ -357,7 +399,13 @@ class TestFilterBestQuality:
         url = "http://example.com/stream"
         streams = [
             {"name": "TF1", "url": url, "width": 1920, "height": 1080, "working": True},
-            {"name": "TF1 HD", "url": url, "width": 1920, "height": 1080, "working": True},
+            {
+                "name": "TF1 HD",
+                "url": url,
+                "width": 1920,
+                "height": 1080,
+                "working": True,
+            },
         ]
 
         result = filter_best_quality(streams, deduplicate=True)
@@ -367,8 +415,20 @@ class TestFilterBestQuality:
     def test_filter_no_deduplication(self):
         """Test without deduplication."""
         streams = [
-            {"name": "TF1", "url": "http://a", "width": 1920, "height": 1080, "working": True},
-            {"name": "TF1", "url": "http://b", "width": 1280, "height": 720, "working": True},
+            {
+                "name": "TF1",
+                "url": "http://a",
+                "width": 1920,
+                "height": 1080,
+                "working": True,
+            },
+            {
+                "name": "TF1",
+                "url": "http://b",
+                "width": 1280,
+                "height": 720,
+                "working": True,
+            },
         ]
 
         result = filter_best_quality(streams, deduplicate=False)
@@ -381,14 +441,19 @@ class TestFilterBestQuality:
 class TestWritePlaylist:
     """Test playlist writing function."""
 
-    @patch('builtins.open', create=True)
+    @patch("builtins.open", create=True)
     def test_write_playlist_basic(self, mock_open):
         """Test basic playlist writing."""
         mock_file = MagicMock()
         mock_open.return_value.__enter__.return_value = mock_file
 
         entries = [
-            {"name": "TF1", "info": "#EXTINF:-1,TF1", "url": "http://test", "quality": "1080p"},
+            {
+                "name": "TF1",
+                "info": "#EXTINF:-1,TF1",
+                "url": "http://test",
+                "quality": "1080p",
+            },
         ]
 
         write_playlist(entries, "test.m3u")
@@ -397,14 +462,19 @@ class TestWritePlaylist:
         # Check that write was called
         assert mock_file.write.called
 
-    @patch('builtins.open', create=True)
+    @patch("builtins.open", create=True)
     def test_write_playlist_with_metadata(self, mock_open):
         """Test playlist writing includes metadata."""
         mock_file = MagicMock()
         mock_open.return_value.__enter__.return_value = mock_file
 
         entries = [
-            {"name": "Test", "info": "#EXTINF:-1,Test", "url": "http://test", "quality": "720p"},
+            {
+                "name": "Test",
+                "info": "#EXTINF:-1,Test",
+                "url": "http://test",
+                "quality": "720p",
+            },
         ]
 
         write_playlist(entries, "test.m3u")
@@ -418,27 +488,33 @@ class TestWritePlaylist:
 class TestToolAvailability:
     """Test tool availability checking."""
 
-    @patch('playlist_utils.subprocess.run')
-    def test_tool_available(self, mock_run):
+    @patch("playlist_utils.shutil.which")
+    def test_tool_available(self, mock_which):
         """Test detection of available tool."""
-        mock_run.return_value = Mock(returncode=0)
+        mock_which.return_value = "/usr/bin/curl"
 
         assert check_tool_availability("curl") is True
-        mock_run.assert_called_once()
+        mock_which.assert_called_once_with("curl")
 
-    @patch('playlist_utils.subprocess.run')
-    def test_tool_not_available(self, mock_run):
+    @patch("playlist_utils.os.path.isfile")
+    @patch("playlist_utils.shutil.which")
+    def test_tool_not_available(self, mock_which, mock_isfile):
         """Test detection of unavailable tool."""
-        mock_run.side_effect = FileNotFoundError()
+        mock_which.return_value = None
+        mock_isfile.return_value = False
 
         assert check_tool_availability("nonexistent") is False
 
-    @patch('playlist_utils.subprocess.run')
-    def test_tool_timeout(self, mock_run):
-        """Test handling of tool check timeout."""
-        mock_run.side_effect = subprocess.TimeoutExpired(cmd=[], timeout=5)
+    @patch("playlist_utils.os.access")
+    @patch("playlist_utils.os.path.isfile")
+    @patch("playlist_utils.shutil.which")
+    def test_tool_common_path_available(self, mock_which, mock_isfile, mock_access):
+        """Test detection from common fallback locations."""
+        mock_which.return_value = None
+        mock_isfile.side_effect = [False, True]
+        mock_access.return_value = True
 
-        assert check_tool_availability("slow_tool") is False
+        assert check_tool_availability("ffprobe") is True
 
 
 class TestAnalyzeFailures:
@@ -488,6 +564,7 @@ class TestSetupLogging:
         setup_logging(verbose=False)
 
         import logging
+
         logger = logging.getLogger("playlist_utils")
         assert logger.level <= logging.INFO
 
@@ -496,6 +573,7 @@ class TestSetupLogging:
         setup_logging(verbose=True)
 
         import logging
+
         logger = logging.getLogger("playlist_utils")
         assert logger.level <= logging.DEBUG
 
@@ -517,16 +595,16 @@ class TestEdgeCases:
 
         assert result == []
 
-    @patch('playlist_utils.subprocess.run')
+    @patch("playlist_utils.subprocess.run")
     def test_ffprobe_json_decode_error(self, mock_run):
         """Test handling of invalid JSON from ffprobe."""
-        mock_run.return_value = Mock(
-            returncode=0,
-            stdout="Invalid JSON",
-            stderr=""
-        )
+        mock_run.return_value = Mock(returncode=0, stdout="Invalid JSON", stderr="")
 
-        entry = {"name": "Test", "info": "#EXTINF:-1,Test", "url": "http://example.com/stream"}
+        entry = {
+            "name": "Test",
+            "info": "#EXTINF:-1,Test",
+            "url": "http://example.com/stream",
+        }
         result = check_stream_with_ffprobe(entry)
 
         # Should handle gracefully

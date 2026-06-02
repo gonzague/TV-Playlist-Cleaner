@@ -122,11 +122,7 @@ def get_category_info(category: str) -> Dict[str, any]:
         Dictionary with category information (name, sources count, URLs)
     """
     sources = get_sources_by_category(category)
-    return {
-        "name": category,
-        "count": len(sources),
-        "sources": sources
-    }
+    return {"name": category, "count": len(sources), "sources": sources}
 
 
 def validate_sources() -> Dict[str, bool]:
@@ -159,7 +155,7 @@ def main() -> None:
     """Display all available sources organized by category."""
     import logging
 
-    logging.basicConfig(level=logging.INFO, format='%(message)s')
+    logging.basicConfig(level=logging.INFO, format="%(message)s")
     logger = logging.getLogger(__name__)
 
     logger.info("📋 Sources M3U disponibles:")

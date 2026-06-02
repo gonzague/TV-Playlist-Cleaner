@@ -19,7 +19,7 @@ from playlist_utils import (
     write_playlist,
     check_tool_availability,
     analyze_failures,
-    setup_logging
+    setup_logging,
 )
 
 # Sources M3U multiples
@@ -73,7 +73,9 @@ def normalize_channel_name(name: str) -> str:
     return name.lower()
 
 
-def parse_m3u_with_source(m3u_text: str, source_name: str = "Unknown") -> List[Dict[str, str]]:
+def parse_m3u_with_source(
+    m3u_text: str, source_name: str = "Unknown"
+) -> List[Dict[str, str]]:
     """
     Parse M3U content and extract stream information with source tracking.
 
@@ -113,14 +115,16 @@ def parse_m3u_with_source(m3u_text: str, source_name: str = "Unknown") -> List[D
                 normalized_name = normalize_channel_name(name)
                 stream_hash = hashlib.sha256(url.encode()).hexdigest()[:16]
 
-                entries.append({
-                    "name": name,
-                    "normalized_name": normalized_name,
-                    "stream_hash": stream_hash,
-                    "info": info,
-                    "url": url,
-                    "source": source_name,
-                })
+                entries.append(
+                    {
+                        "name": name,
+                        "normalized_name": normalized_name,
+                        "stream_hash": stream_hash,
+                        "info": info,
+                        "url": url,
+                        "source": source_name,
+                    }
+                )
         i += 1
 
     return entries
@@ -156,31 +160,19 @@ def parse_arguments() -> argparse.Namespace:
     )
     parser.add_argument("--output", default="filtered.m3u", help="Fichier de sortie")
     parser.add_argument(
-        "--workers",
-        type=int,
-        default=10,
-        help="Nombre de workers parallèles (1-50)"
+        "--workers", type=int, default=10, help="Nombre de workers parallèles (1-50)"
     )
     parser.add_argument(
-        "--timeout",
-        type=int,
-        default=15,
-        help="Timeout en secondes (1-60)"
+        "--timeout", type=int, default=15, help="Timeout en secondes (1-60)"
     )
     parser.add_argument(
-        "--no-deduplication",
-        action="store_true",
-        help="Désactiver le dédoublonnage"
+        "--no-deduplication", action="store_true", help="Désactiver le dédoublonnage"
     )
     parser.add_argument(
-        "--verbose",
-        action="store_true",
-        help="Mode verbeux (debug logging)"
+        "--verbose", action="store_true", help="Mode verbeux (debug logging)"
     )
     parser.add_argument(
-        "--sources",
-        nargs="+",
-        help="Sources M3U personnalisées (URLs)"
+        "--sources", nargs="+", help="Sources M3U personnalisées (URLs)"
     )
 
     args = parser.parse_args()
@@ -294,7 +286,9 @@ def main() -> None:
         logger.info("\n📺 Exemples de flux sélectionnés:")
         for i, stream in enumerate(best_streams[:5]):
             quality_info = (
-                f" ({stream.get('quality')})" if stream.get("quality") != "unknown" else ""
+                f" ({stream.get('quality')})"
+                if stream.get("quality") != "unknown"
+                else ""
             )
             source_info = f" [{stream.get('source', 'unknown')}]"
             logger.info(f"  {i+1}. {stream['name']}{quality_info}{source_info}")

@@ -157,14 +157,14 @@ RUN apk add --no-cache \
     git \
     && rm -rf /var/cache/apk/*
 
-# Installer UV et des packages Python supplémentaires
+# Installer UV et les dépendances Python verrouillées
 COPY --from=ghcr.io/astral-sh/uv:latest /uv /usr/local/bin/uv
-RUN uv pip install --system \
-    requests>=2.25.0 \
-    tqdm>=4.60.0 \
-    beautifulsoup4 \
-    lxml
+COPY pyproject.toml uv.lock ./
+RUN uv sync --frozen --no-dev --no-install-project
 ```
+
+Pour ajouter des packages Python, ajoutez-les à `pyproject.toml`, régénérez
+`uv.lock` avec `uv lock`, puis reconstruisez l'image.
 
 ### Créer une Image Personnalisée
 
@@ -273,4 +273,4 @@ echo "📁 Playlists générées dans le dossier output/"
 
 ---
 
-🎯 **Conseil** : Utilisez le script `docker-run.sh` pour une expérience simplifiée ! 
+🎯 **Conseil** : Utilisez le script `docker-run.sh` pour une expérience simplifiée !

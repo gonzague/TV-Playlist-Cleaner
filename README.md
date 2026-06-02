@@ -86,9 +86,9 @@ curl -LsSf https://astral.sh/uv/install.sh | sh
 powershell -c "irm https://astral.sh/uv/install.ps1 | iex"
 ```
 
-**Ou avec pip :**
+**Ou avec Homebrew :**
 ```bash
-pip install uv
+brew install uv
 ```
 
 ## 🚀 Installation Rapide
@@ -100,13 +100,11 @@ pip install uv
 git clone https://github.com/gonzague/TV-playlist-Cleaner.git
 cd TV-playlist-cleaner
 
-# Créer un environnement virtuel et installer les dépendances avec UV
-uv venv
-source .venv/bin/activate  # Sur Windows: .venv\Scripts\activate
-uv pip install "requests>=2.25.0" "tqdm>=4.60.0"
+# Installer les dépendances verrouillées avec UV
+uv sync
 
 # Générer une playlist française (recommandé pour débuter)
-python cleaner_config.py french
+uv run python cleaner_config.py french
 
 ```
 

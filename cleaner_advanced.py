@@ -18,7 +18,7 @@ from playlist_utils import (
     write_playlist,
     check_tool_availability,
     analyze_failures,
-    setup_logging
+    setup_logging,
 )
 
 # Configuration
@@ -33,21 +33,13 @@ def parse_arguments() -> argparse.Namespace:
     parser.add_argument("--url", default=M3U_URL, help="URL de la playlist M3U")
     parser.add_argument("--output", default="filtered.m3u", help="Fichier de sortie")
     parser.add_argument(
-        "--workers",
-        type=int,
-        default=10,
-        help="Nombre de workers parallèles (1-50)"
+        "--workers", type=int, default=10, help="Nombre de workers parallèles (1-50)"
     )
     parser.add_argument(
-        "--timeout",
-        type=int,
-        default=15,
-        help="Timeout en secondes (1-60)"
+        "--timeout", type=int, default=15, help="Timeout en secondes (1-60)"
     )
     parser.add_argument(
-        "--verbose",
-        action="store_true",
-        help="Mode verbeux (debug logging)"
+        "--verbose", action="store_true", help="Mode verbeux (debug logging)"
     )
 
     args = parser.parse_args()
@@ -155,7 +147,9 @@ def main() -> None:
         logger.info("\n📺 Exemples de flux sélectionnés:")
         for i, stream in enumerate(best_streams[:5]):  # Show first 5
             quality_info = (
-                f" ({stream.get('quality')})" if stream.get("quality") != "unknown" else ""
+                f" ({stream.get('quality')})"
+                if stream.get("quality") != "unknown"
+                else ""
             )
             method_info = f" [{stream.get('method', 'unknown')}]"
             logger.info(f"  {i+1}. {stream['name']}{quality_info}{method_info}")
