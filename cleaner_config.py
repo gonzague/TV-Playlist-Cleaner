@@ -40,6 +40,9 @@ def show_usage() -> None:
     logger.info(f"  --output FILE     : Fichier de sortie (défaut: filtered.m3u)")
     logger.info(f"  --no-deduplication: Désactiver le dédoublonnage")
     logger.info(f"  --verbose         : Mode verbeux (debug logging)")
+    logger.info("  --report-json FILE / --report-csv FILE : Rapports détaillés")
+    logger.info("  --retries N / --retry-delay S : Nouvelles tentatives temporaires")
+    logger.info("  --cache FILE / --cache-ttl S : Cache des vérifications réussies")
 
 
 def validate_category(category: str, available: List[str]) -> bool:

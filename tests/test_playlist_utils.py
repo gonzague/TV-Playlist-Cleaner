@@ -451,48 +451,23 @@ class TestFilterBestQuality:
 class TestWritePlaylist:
     """Test playlist writing function."""
 
-    @patch("builtins.open", create=True)
-    def test_write_playlist_basic(self, mock_open):
-        """Test basic playlist writing."""
-        mock_file = MagicMock()
-        mock_open.return_value.__enter__.return_value = mock_file
+    def test_write_playlist_basic(self, tmp_path):
+        entry = {"name": "TF1", "info": "#EXTINF:-1,TF1", "url": "http://test"}
+        output = tmp_path / "test.m3u"
+        write_playlist([entry], output)
+        assert parse_m3u(output.read_text(encoding="utf-8")) == [entry]
 
-        entries = [
-            {
-                "name": "TF1",
-                "info": "#EXTINF:-1,TF1",
-                "url": "http://test",
-                "quality": "1080p",
-            },
-        ]
-
-        write_playlist(entries, "test.m3u")
-
-        mock_open.assert_called_once_with("test.m3u", "w", encoding="utf-8")
-        # Check that write was called
-        assert mock_file.write.called
-
-    @patch("builtins.open", create=True)
-    def test_write_playlist_with_metadata(self, mock_open):
-        """Test playlist writing includes metadata."""
-        mock_file = MagicMock()
-        mock_open.return_value.__enter__.return_value = mock_file
-
-        entries = [
-            {
-                "name": "Test",
-                "info": "#EXTINF:-1,Test",
-                "url": "http://test",
-                "quality": "720p",
-            },
-        ]
-
-        write_playlist(entries, "test.m3u")
-
-        # Check that metadata was written
-        calls = [call[0][0] for call in mock_file.write.call_args_list]
-        assert any("#EXTM3U" in call for call in calls)
-        assert any("Playlist générée" in call for call in calls)
+    def test_write_playlist_with_metadata(self, tmp_path):
+        output = tmp_path / "test.m3u"
+        write_playlist(
+            [{"info": "#EXTINF:-1,Test", "url": "http://test", "quality": "720p"}],
+            output,
+        )
+        content = output.read_text(encoding="utf-8")
+        assert content.startswith("#EXTM3U\n")
+        assert "Playlist générée" in content
+        assert "Qualités détectées: 720p" in content
+        assert "#EXTINF:-1,Test\n" in content
 
 
 class TestToolAvailability:
@@ -619,6 +594,6 @@ class TestEdgeCases:
         }
         result = check_stream_with_ffprobe(entry)
 
-        # Should handle gracefully
-        assert result["working"] is True
-        assert result["quality"] == "unknown"
+        # A successful process exit alone does not prove that media was found.
+        assert result["working"] is False
+        assert result["quality"] == "failed"

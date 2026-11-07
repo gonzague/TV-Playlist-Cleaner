@@ -14,9 +14,12 @@ import json
 import shutil
 import os
 import ipaddress
+import tempfile
+import time
 from typing import List, Dict, Optional, Tuple, Any
 from collections import defaultdict
-from urllib.parse import urlparse
+from concurrent.futures import CancelledError
+from urllib.parse import urlparse, parse_qsl
 import requests
 
 # Configure module logger
@@ -112,7 +115,32 @@ def validate_url(url: str) -> bool:
         return False
 
 
-def download_playlist(url: str, timeout: int = 30) -> Optional[str]:
+def download_playlist(
+    url: str,
+    timeout: int = 30,
+    retries: int = 0,
+    retry_delay: float = 0.5,
+    cancel_event=None,
+) -> Optional[str]:
+    """Download a playlist, retrying only temporary HTTP/network failures."""
+    for attempt in range(retries + 1):
+        if cancel_event is not None and cancel_event.is_set():
+            raise CancelledError()
+        result, retryable = _download_playlist_once(url, timeout, cancel_event)
+        if result is not None or not retryable or attempt == retries:
+            return result
+        delay = min(retry_delay * (2**attempt), 30)
+        if cancel_event is not None:
+            if cancel_event.wait(delay):
+                raise CancelledError()
+        else:
+            time.sleep(delay)
+    return None
+
+
+def _download_playlist_once(
+    url: str, timeout: int, cancel_event=None
+) -> Tuple[Optional[str], bool]:
     """
     Download playlist with safety checks.
 
@@ -123,14 +151,13 @@ def download_playlist(url: str, timeout: int = 30) -> Optional[str]:
     Returns:
         Playlist content or None on error
 
-    Raises:
-        ValueError: If playlist is too large or invalid content type
-        requests.exceptions.RequestException: On network errors
+    Responses are always closed, including on HTTP errors and oversized input.
     """
     if not validate_url(url):
         logger.error(f"Invalid URL rejected: {url}")
-        return None
+        return None, False
 
+    response = None
     try:
         logger.info(f"Downloading playlist from: {url}")
         response = requests.get(
@@ -159,6 +186,8 @@ def download_playlist(url: str, timeout: int = 30) -> Optional[str]:
         # Download with size limit
         content = bytearray()
         for chunk in response.iter_content(chunk_size=8192):
+            if cancel_event is not None and cancel_event.is_set():
+                raise CancelledError()
             if chunk:  # filter out keep-alive chunks
                 if isinstance(chunk, str):
                     chunk = chunk.encode("utf-8")
@@ -167,22 +196,34 @@ def download_playlist(url: str, timeout: int = 30) -> Optional[str]:
                 content.extend(chunk)
 
         # Decode to string
-        result = bytes(content).decode("utf-8", errors="replace")
+        result = bytes(content).decode("utf-8-sig", errors="replace")
         logger.info(f"Successfully downloaded {len(result)} bytes")
-        return result
+        return result, False
 
+    except CancelledError:
+        raise
     except requests.exceptions.Timeout:
         logger.error(f"Timeout downloading playlist: {url}")
-        return None
+        return None, True
+    except requests.exceptions.SSLError:
+        logger.error("SSL certificate error downloading playlist")
+        return None, False
+    except requests.exceptions.ChunkedEncodingError:
+        logger.error("Interrupted playlist download")
+        return None, True
     except requests.exceptions.ConnectionError as e:
         logger.error(f"Connection error downloading playlist: {e}")
-        return None
+        return None, True
     except requests.exceptions.HTTPError as e:
-        logger.error(f"HTTP error {e.response.status_code}: {url}")
-        return None
+        status = e.response.status_code if e.response is not None else "unknown"
+        logger.error(f"HTTP error {status}: {url}")
+        return None, status in (408, 425, 429, 500, 502, 503, 504)
     except Exception as e:
         logger.error(f"Unexpected error downloading playlist", exc_info=True)
-        return None
+        return None, False
+    finally:
+        if response is not None:
+            response.close()
 
 
 def parse_m3u(m3u_text: str) -> List[Dict[str, str]]:
@@ -206,31 +247,116 @@ def parse_m3u(m3u_text: str) -> List[Dict[str, str]]:
     """
     logger.debug("Parsing M3U content")
     entries = []
-    lines = m3u_text.strip().splitlines()
-    i = 0
-
-    while i < len(lines):
-        if lines[i].startswith("#EXTINF"):
-            info = lines[i]
-            i += 1
-            if i < len(lines) and not lines[i].startswith("#"):
-                url = lines[i].strip()
-
-                # Skip invalid URLs
-                if not url or url.startswith("#"):
-                    i += 1
-                    continue
-
-                # Try to extract channel name from tvg-name attribute first, then from the end of the line
-                match = re.search(r'tvg-name="([^"]+)"', info) or re.search(
-                    r",(.+)$", info
-                )
-                name = match.group(1).strip() if match else "Unknown"
-                entries.append({"name": name, "info": info, "url": url})
-        i += 1
+    info = None
+    directives = []
+    for raw_line in m3u_text.lstrip("\ufeff").splitlines():
+        line = raw_line.strip()
+        if not line:
+            continue
+        if line.startswith("#EXTINF:"):
+            # A new entry discards any incomplete preceding entry.
+            info = line
+            directives = []
+        elif info is not None and line.startswith("#"):
+            directives.append(line)
+        elif info is not None:
+            match = re.search(r'\btvg-name="([^"]+)"', info)
+            # Only commas outside quoted attributes delimit the display name.
+            fields = re.split(r',(?=(?:[^"]*"[^"]*")*[^"]*$)', info, maxsplit=1)
+            name = match.group(1) if match else fields[1] if len(fields) > 1 else ""
+            entry = {"name": name.strip() or "Unknown", "info": info, "url": line}
+            if directives:
+                entry["directives"] = "\n".join(directives)
+            entries.append(entry)
+            info = None
+            directives = []
 
     logger.info(f"Parsed {len(entries)} entries from M3U")
     return entries
+
+
+def stream_request(entry: Dict[str, str]) -> Tuple[str, Dict[str, str]]:
+    """Extract HTTP options without modifying the playback URL or directives.
+
+    VLC literal values and Kodi URL-encoded header pairs are supported. Different
+    manifest/segment values cannot be represented by a single ffprobe request.
+    """
+    url, separator, suffix = entry["url"].partition("|")
+    headers = {}
+    kodi = {}
+    vlc_names = {
+        "http-user-agent": "user-agent",
+        "http-referrer": "referer",
+        "http-referer": "referer",
+        "http-origin": "origin",
+        "http-cookie": "cookie",
+    }
+
+    def put(target, name, value):
+        name = name.strip().lower()
+        if not re.fullmatch(r"[!#$%&'*+.^_`|~0-9a-z-]+", name):
+            raise ValueError("Invalid HTTP header name")
+        if any(ord(char) < 32 or ord(char) == 127 for char in value):
+            raise ValueError("Invalid control character in HTTP header")
+        if name in {"host", "content-length", "transfer-encoding", "connection"}:
+            raise ValueError("Unsupported transport HTTP header")
+        target[name] = value
+
+    for line in entry.get("directives", "").splitlines():
+        if line.startswith("#EXTVLCOPT:"):
+            name, _, value = line[len("#EXTVLCOPT:") :].partition("=")
+            if name.lower() in vlc_names:
+                put(headers, vlc_names[name.lower()], value)
+        elif line.startswith("#KODIPROP:inputstream.adaptive."):
+            key, _, value = line[len("#KODIPROP:inputstream.adaptive.") :].partition(
+                "="
+            )
+            if key in ("common_headers", "stream_headers", "manifest_headers"):
+                parsed = {}
+                for name, content in parse_qsl(
+                    value, keep_blank_values=True, strict_parsing=True
+                ):
+                    put(parsed, name, content)
+                kodi[key] = parsed
+    stream = kodi.get("stream_headers", {})
+    manifest = kodi.get("manifest_headers", {})
+    if any(stream[name] != manifest[name] for name in stream.keys() & manifest.keys()):
+        raise ValueError("Distinct Kodi manifest/stream headers are not supported")
+    for key in ("common_headers", "stream_headers", "manifest_headers"):
+        headers.update(kodi.get(key, {}))
+    if separator:
+        if not suffix:
+            raise ValueError("Invalid empty Kodi URL headers")
+        try:
+            pairs = parse_qsl(suffix, keep_blank_values=True, strict_parsing=True)
+        except ValueError as exc:
+            raise ValueError("Invalid URL header suffix") from exc
+        for name, value in pairs:
+            put(headers, name, value)
+    return url, headers
+
+
+def request_identity(entry: Dict[str, str]) -> str:
+    """Identity includes effective headers: different credentials are different probes."""
+    try:
+        url, headers = stream_request(entry)
+        value = [url, headers]
+    except ValueError:
+        value = [entry["url"], entry.get("directives", "")]
+    return hashlib.sha256(json.dumps(value, sort_keys=True).encode()).hexdigest()
+
+
+def _request_error(entry, error):
+    return {
+        **entry,
+        "working": False,
+        "quality": "failed",
+        "width": 0,
+        "height": 0,
+        "error": str(error),
+        "method": "validation",
+        "retryable": False,
+    }
 
 
 def check_stream_with_curl(entry: Dict[str, str], timeout: int = 15) -> Dict[str, Any]:
@@ -244,7 +370,10 @@ def check_stream_with_curl(entry: Dict[str, str], timeout: int = 15) -> Dict[str
     Returns:
         Dictionary with stream info including 'working', 'quality', 'width', 'height'
     """
-    url = entry["url"]
+    try:
+        url, request_headers = stream_request(entry)
+    except ValueError as exc:
+        return _request_error(entry, exc)
 
     # Validate URL before passing to subprocess
     if not validate_url(url):
@@ -277,23 +406,39 @@ def check_stream_with_curl(entry: Dict[str, str], timeout: int = 15) -> Dict[str
         # Use curl to check if the stream is accessible
         cmd = [
             curl_path,  # Use full path instead of just "curl"
+            "--disable",
+            "--globoff",
             "-I",
+            "--location",
+            "--max-redirs",
+            "5",
+            "--proto",
+            "=http,https",
+            "--proto-redir",
+            "=http,https",
             "--connect-timeout",
             str(timeout),
             "--max-time",
             str(timeout),
             "--silent",
+            "--show-error",
             "--fail",
             url,
         ]
 
+        for name, value in request_headers.items():
+            cmd[-1:-1] = ["--header", f"{name}: {value}"]
         result = subprocess.run(  # nosec B603
             cmd, capture_output=True, text=True, timeout=timeout + 5
         )
 
-        if result.returncode == 0:
+        statuses = re.findall(r"^HTTP/\S+\s+(\d{3})", result.stdout, re.MULTILINE)
+        status = int(statuses[-1]) if statuses else 0
+        if result.returncode == 0 and 200 <= status < 300:
             # Extract content type and other headers
-            headers = result.stdout
+            headers = re.split(
+                r"^HTTP/\S+\s+\d{3}.*$", result.stdout, flags=re.MULTILINE
+            )[-1]
             content_type = ""
             if "content-type:" in headers.lower():
                 content_type_match = re.search(
@@ -333,7 +478,7 @@ def check_stream_with_curl(entry: Dict[str, str], timeout: int = 15) -> Dict[str
             }
 
         # If we get here, the stream failed
-        error_msg = result.stderr.strip() if result.stderr else "Unknown error"
+        error_msg = result.stderr.strip() or f"HTTP Error {status or 'unknown'}"
         logger.debug(f"Stream failed: {entry['name']} - {error_msg}")
         return {
             **entry,
@@ -343,6 +488,9 @@ def check_stream_with_curl(entry: Dict[str, str], timeout: int = 15) -> Dict[str
             "height": 0,
             "error": error_msg,
             "method": "curl",
+            "http_status": status,
+            "retryable": status in (408, 425, 429, 500, 502, 503, 504)
+            or result.returncode in (5, 6, 7, 18, 28, 52, 55, 56),
         }
 
     except subprocess.TimeoutExpired:
@@ -355,6 +503,7 @@ def check_stream_with_curl(entry: Dict[str, str], timeout: int = 15) -> Dict[str
             "height": 0,
             "error": "Timeout",
             "method": "curl",
+            "retryable": True,
         }
     except Exception as e:
         logger.error(f"Error checking stream {entry['name']}", exc_info=True)
@@ -382,7 +531,10 @@ def check_stream_with_ffprobe(
     Returns:
         Dictionary with stream info including 'working', 'quality', 'width', 'height'
     """
-    url = entry["url"]
+    try:
+        url, request_headers = stream_request(entry)
+    except ValueError as exc:
+        return _request_error(entry, exc)
 
     # Validate URL before passing to subprocess
     if not validate_url(url):
@@ -416,7 +568,7 @@ def check_stream_with_ffprobe(
         cmd = [
             ffprobe_path,  # Use full path instead of just "ffprobe"
             "-v",
-            "quiet",
+            "error",
             "-print_format",
             "json",
             "-show_format",
@@ -430,6 +582,11 @@ def check_stream_with_ffprobe(
             url,
         ]
 
+        if request_headers:
+            header_text = "".join(
+                f"{name}: {value}\r\n" for name, value in request_headers.items()
+            )
+            cmd[-1:-1] = ["-headers", header_text]
         result = subprocess.run(  # nosec B603
             cmd, capture_output=True, text=True, timeout=timeout + 5
         )
@@ -438,30 +595,34 @@ def check_stream_with_ffprobe(
             try:
                 # Parse JSON output to get stream information
                 stream_info = json.loads(result.stdout)
+                if not isinstance(stream_info, dict):
+                    raise ValueError("Invalid ffprobe response")
+                streams = stream_info.get("streams", [])
+                if not isinstance(streams, list) or not any(
+                    isinstance(s, dict) and s.get("codec_type") in ("video", "audio")
+                    for s in streams
+                ):
+                    raise ValueError("No playable streams found")
 
                 # Determine quality from video streams
                 quality = "unknown"
                 width = 0
                 height = 0
 
-                if "streams" in stream_info:
+                if streams:
                     video_streams = [
                         s
                         for s in stream_info["streams"]
-                        if s.get("codec_type") == "video"
+                        if isinstance(s, dict) and s.get("codec_type") == "video"
                     ]
                     if video_streams:
-                        video_stream = video_streams[0]
-                        width = video_stream.get("width", 0)
-                        height = video_stream.get("height", 0)
-
-                        if width >= RESOLUTION_1080P and height >= 1080:
-                            quality = "1080p"
-                        elif width >= RESOLUTION_720P and height >= 720:
-                            quality = "720p"
-                        elif width >= RESOLUTION_480P and height >= 480:
-                            quality = "480p"
-                        elif width > 0 and height > 0:
+                        video_stream = max(
+                            video_streams,
+                            key=lambda s: (s.get("height") or 0, s.get("width") or 0),
+                        )
+                        width = video_stream.get("width") or 0
+                        height = video_stream.get("height") or 0
+                        if width > 0 and height > 0:
                             quality = f"{height}p"
 
                 logger.debug(f"Stream OK (ffprobe): {entry['name']} - {quality}")
@@ -473,15 +634,15 @@ def check_stream_with_ffprobe(
                     "height": height,
                     "method": "ffprobe",
                 }
-            except json.JSONDecodeError:
-                # If JSON parsing fails but command succeeded, stream is probably working
-                logger.debug(f"Stream OK (ffprobe, no JSON): {entry['name']}")
+            except ValueError as exc:
+                logger.debug(f"Invalid ffprobe output for {entry['name']}: {exc}")
                 return {
                     **entry,
-                    "working": True,
-                    "quality": "unknown",
+                    "working": False,
+                    "quality": "failed",
                     "width": 0,
                     "height": 0,
+                    "error": str(exc),
                     "method": "ffprobe",
                 }
         else:
@@ -507,6 +668,7 @@ def check_stream_with_ffprobe(
             "height": 0,
             "error": "Timeout",
             "method": "ffprobe",
+            "retryable": True,
         }
     except Exception as e:
         logger.error(f"Error checking stream (ffprobe) {entry['name']}", exc_info=True)
@@ -594,7 +756,7 @@ def filter_best_quality(
         unique_entries = []
         for entry in entries:
             if entry.get("working"):
-                url_hash = hashlib.sha256(entry["url"].encode()).hexdigest()
+                url_hash = request_identity(entry)
                 if url_hash not in seen_urls:
                     seen_urls.add(url_hash)
                     unique_entries.append(entry)
@@ -605,17 +767,20 @@ def filter_best_quality(
     # Group by name and select best quality
     grouped = defaultdict(list)
     for entry in unique_entries:
-        grouped[entry["name"]].append(entry)
+        grouped[entry.get("normalized_name") or entry["name"]].append(entry)
 
     best_streams = []
     for name, group in grouped.items():
         if group:
             # Sort by height (resolution) and select the best
-            best = max(group, key=lambda e: (e.get("height", 0), e.get("width", 0)))
+            best = max(
+                group,
+                key=lambda e: (e.get("height", 0), e.get("width", 0), e["url"]),
+            )
             best_streams.append(best)
 
     logger.info(f"Selected {len(best_streams)} best quality streams")
-    return best_streams
+    return sorted(best_streams, key=lambda e: (e["name"].casefold(), e["url"]))
 
 
 def write_playlist(
@@ -632,30 +797,42 @@ def write_playlist(
 
     logger.info(f"Writing {len(entries)} entries to {output_file}")
 
-    with open(output_file, "w", encoding="utf-8") as f:
-        f.write("#EXTM3U\n")
-        f.write(
-            f"# Playlist générée le {datetime.now().strftime('%d/%m/%Y à %H:%M:%S')}\n"
-        )
-        f.write(f"# Total: {len(entries)} flux valides\n")
-
-        qualities = set(
-            e.get("quality", "unknown")
-            for e in entries
-            if e.get("quality") != "unknown"
-        )
-        if qualities:
-            f.write(f"# Qualités détectées: {', '.join(sorted(qualities))}\n")
-        f.write("\n")
-
-        for entry in entries:
-            quality_info = (
-                f" ({entry.get('quality', 'unknown')})"
-                if entry.get("quality") and entry.get("quality") != "unknown"
-                else ""
+    destination = os.path.realpath(output_file)
+    temporary_path = None
+    try:
+        # Replace only after a complete write, on the same filesystem.
+        with tempfile.NamedTemporaryFile(
+            mode="w",
+            encoding="utf-8",
+            dir=os.path.dirname(destination),
+            prefix=".playlist-",
+            suffix=".tmp",
+            delete=False,
+        ) as f:
+            temporary_path = f.name
+            f.write("#EXTM3U\n")
+            f.write(
+                f"# Playlist générée le {datetime.now().strftime('%d/%m/%Y à %H:%M:%S')}\n"
             )
-            f.write(f"{entry['info']}{quality_info}\n")
-            f.write(f"{entry['url']}\n\n")
+            f.write(f"# Total: {len(entries)} flux valides\n")
+            qualities = {e.get("quality") for e in entries} - {None, "", "unknown"}
+            if qualities:
+                f.write(f"# Qualités détectées: {', '.join(sorted(qualities))}\n")
+            f.write("\n")
+            for entry in entries:
+                # Keep original channel labels and player directives unchanged.
+                f.write(f"{entry['info']}\n")
+                if entry.get("directives"):
+                    f.write(f"{entry['directives']}\n")
+                f.write(f"{entry['url']}\n\n")
+            f.flush()
+            os.fsync(f.fileno())
+        if os.path.exists(destination):
+            os.chmod(temporary_path, os.stat(destination).st_mode & 0o777)
+        os.replace(temporary_path, destination)
+    finally:
+        if temporary_path and os.path.exists(temporary_path):
+            os.unlink(temporary_path)
 
     logger.info(f"Playlist written successfully to {output_file}")
 

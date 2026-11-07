@@ -4,16 +4,24 @@ Basic TV playlist cleaner using curl for stream validation.
 """
 
 import logging
+import argparse
+import sys
 import subprocess  # nosec B404
-from concurrent.futures import ThreadPoolExecutor, as_completed
-from typing import List, Dict, Any
-from tqdm import tqdm
+from typing import List, Dict, Any, Optional
+
+from validation_pipeline import (
+    add_processing_arguments,
+    validate_processing_arguments,
+    validate_entries,
+    save_outputs,
+)
 
 # Import shared utilities
 from playlist_utils import (
     download_playlist,
     parse_m3u,
     check_stream_with_curl,
+    check_stream_with_ffprobe,
     extract_resolution_from_quality,
     filter_best_quality,
     write_playlist,
@@ -21,6 +29,7 @@ from playlist_utils import (
     get_tool_path,
     analyze_failures,
     setup_logging,
+    MAX_PLAYLIST_SIZE,
 )
 
 # Configuration
@@ -49,53 +58,83 @@ def check_curl_availability() -> bool:
         return False
 
 
-def main() -> None:
+def parse_arguments(argv: Optional[List[str]] = None) -> argparse.Namespace:
+    parser = argparse.ArgumentParser(description="Nettoyeur de playlists TV M3U")
+    source = parser.add_mutually_exclusive_group()
+    source.add_argument("--url", default=M3U_URL, help="URL de la playlist M3U")
+    source.add_argument("--input", help="Fichier M3U local")
+    parser.add_argument("--output", default="filtered.m3u", help="Fichier de sortie")
+    parser.add_argument(
+        "--workers", type=int, default=MAX_WORKERS, help="Workers (1-50)"
+    )
+    parser.add_argument("--timeout", type=int, default=TIMEOUT, help="Timeout (1-60 s)")
+    parser.add_argument("--verbose", action="store_true", help="Journal détaillé")
+    parser.add_argument(
+        "--validator",
+        choices=("curl", "ffprobe"),
+        default="curl",
+        help="curl : disponibilité HTTP ; ffprobe : analyse du média et de sa résolution",
+    )
+    add_processing_arguments(parser)
+    args = parser.parse_args(argv)
+    validate_processing_arguments(args, parser)
+    if not 1 <= args.workers <= 50:
+        parser.error("--workers doit être compris entre 1 et 50")
+    if not 1 <= args.timeout <= 60:
+        parser.error("--timeout doit être compris entre 1 et 60")
+    return args
+
+
+def main(argv: Optional[List[str]] = None) -> int:
     """Main entry point for the basic playlist cleaner."""
+    args = parse_arguments(argv)
     # Setup logging
-    setup_logging(verbose=False)
+    setup_logging(verbose=args.verbose)
 
-    logger.info("🔍 Vérification de curl...")
-    if not check_tool_availability("curl"):
-        logger.error("❌ curl n'est pas installé ou n'est pas dans le PATH.")
+    logger.info(f"🔍 Vérification de {args.validator}...")
+    if not check_tool_availability(args.validator):
+        logger.error(
+            f"❌ {args.validator} n'est pas installé ou n'est pas dans le PATH."
+        )
         logger.error("📦 Installez-le avec votre gestionnaire de paquets système")
-        return
+        return 1
 
-    logger.info("📥 Téléchargement de la playlist...")
+    logger.info("📥 Chargement de la playlist...")
     try:
-        m3u_text = download_playlist(M3U_URL)
+        if args.input:
+            with open(args.input, "rb") as source:
+                content = source.read(MAX_PLAYLIST_SIZE + 1)
+            if len(content) > MAX_PLAYLIST_SIZE:
+                raise ValueError("Playlist trop volumineuse (maximum 50 Mo)")
+            m3u_text = content.decode("utf-8-sig", errors="replace")
+        else:
+            m3u_text = download_playlist(
+                args.url,
+                timeout=args.timeout,
+                retries=args.retries,
+                retry_delay=args.retry_delay,
+            )
         if not m3u_text:
-            logger.error("❌ Échec du téléchargement de la playlist")
-            return
+            logger.error("❌ Playlist vide ou impossible à charger")
+            return 1
 
         entries = parse_m3u(m3u_text)
-        logger.info(f"🎬 {len(entries)} flux trouvés. Test en cours avec curl...")
+        if not entries:
+            logger.error("❌ Aucune entrée M3U trouvée")
+            return 1
+        logger.info(f"🎬 {len(entries)} flux trouvés. Test avec {args.validator}...")
     except Exception as e:
-        logger.error(f"❌ Erreur lors du téléchargement: {e}", exc_info=True)
-        return
+        logger.error(f"❌ Erreur lors du chargement: {e}", exc_info=args.verbose)
+        return 1
 
     # Process streams with curl and progress bar
     logger.info("⏳ Test des flux (cela peut prendre du temps)...")
-    results: List[Dict[str, Any]] = []
-
-    with ThreadPoolExecutor(max_workers=MAX_WORKERS) as executor:
-        # Submit all tasks
-        future_to_entry = {
-            executor.submit(check_stream_with_curl, entry, TIMEOUT): entry
-            for entry in entries
-        }
-
-        # Process results with progress bar (as_completed for better performance)
-        with tqdm(total=len(entries), desc="Test des flux", unit="flux") as pbar:
-            for future in as_completed(future_to_entry):
-                result = future.result()
-                results.append(result)
-                pbar.update(1)
-
-                # Update description with current stats
-                working_count = len([r for r in results if r.get("working")])
-                pbar.set_postfix(
-                    {"Valides": working_count, "Échoués": len(results) - working_count}
-                )
+    validate = (
+        check_stream_with_curl
+        if args.validator == "curl"
+        else check_stream_with_ffprobe
+    )
+    results = validate_entries(entries, validate, args.validator, args)
 
     working = [r for r in results if r.get("working")]
     failed = [r for r in results if not r.get("working")]
@@ -132,9 +171,11 @@ def main() -> None:
     best_streams = filter_best_quality(working)
     logger.info(f"🔝 {len(best_streams)} flux sélectionnés avec la meilleure qualité.")
 
+    output_ok = save_outputs(results, best_streams, args)
     if best_streams:
-        output_file = "filtered.m3u"
-        write_playlist(best_streams, output_file)
+        output_file = args.output
+        if not output_ok:
+            return 1
         logger.info(f"💾 Playlist enregistrée dans '{output_file}'")
 
         # Show some examples of selected streams
@@ -150,7 +191,9 @@ def main() -> None:
             logger.info(f"  ... et {len(best_streams) - 5} autres")
     else:
         logger.warning("⚠️  Aucun flux valide trouvé.")
+        return 1
+    return 0
 
 
 if __name__ == "__main__":
-    main()
+    sys.exit(main())

@@ -5,9 +5,15 @@ Advanced TV playlist cleaner with ffprobe support for stream validation.
 
 import argparse
 import logging
-from concurrent.futures import ThreadPoolExecutor, as_completed
+import sys
 from typing import List, Dict, Any
-from tqdm import tqdm
+
+from validation_pipeline import (
+    add_processing_arguments,
+    validate_processing_arguments,
+    validate_entries,
+    save_outputs,
+)
 
 # Import shared utilities
 from playlist_utils import (
@@ -42,7 +48,9 @@ def parse_arguments() -> argparse.Namespace:
         "--verbose", action="store_true", help="Mode verbeux (debug logging)"
     )
 
+    add_processing_arguments(parser)
     args = parser.parse_args()
+    validate_processing_arguments(args, parser)
 
     # Validate arguments
     if not (1 <= args.workers <= 50):
@@ -54,7 +62,7 @@ def parse_arguments() -> argparse.Namespace:
     return args
 
 
-def main() -> None:
+def main() -> int:
     """Main entry point for the advanced playlist cleaner."""
     args = parse_arguments()
 
@@ -64,45 +72,30 @@ def main() -> None:
     logger.info("🔍 Vérification des outils...")
     if not check_tool_availability("ffprobe"):
         logger.error("❌ ffprobe n'est pas installé. Veuillez installer FFmpeg.")
-        return
+        return 1
     logger.info("✅ ffprobe disponible pour la vérification des flux")
 
     logger.info("📥 Téléchargement de la playlist...")
     try:
-        m3u_text = download_playlist(args.url, timeout=args.timeout)
+        m3u_text = download_playlist(
+            args.url,
+            timeout=args.timeout,
+            retries=args.retries,
+            retry_delay=args.retry_delay,
+        )
         if not m3u_text:
             logger.error("❌ Échec du téléchargement de la playlist")
-            return
+            return 1
 
         entries = parse_m3u(m3u_text)
         logger.info(f"🎬 {len(entries)} flux trouvés.")
     except Exception as e:
         logger.error(f"❌ Erreur lors du téléchargement: {e}", exc_info=True)
-        return
+        return 1
 
     # Process streams with progress bar
     logger.info("⏳ Test des flux (cela peut prendre du temps)...")
-    results: List[Dict[str, Any]] = []
-
-    with ThreadPoolExecutor(max_workers=args.workers) as executor:
-        # Submit all tasks
-        future_to_entry = {
-            executor.submit(check_stream_with_ffprobe, entry, args.timeout): entry
-            for entry in entries
-        }
-
-        # Process results with progress bar (as_completed for better performance)
-        with tqdm(total=len(entries), desc="Test des flux", unit="flux") as pbar:
-            for future in as_completed(future_to_entry):
-                result = future.result()
-                results.append(result)
-                pbar.update(1)
-
-                # Update description with current stats
-                working_count = len([r for r in results if r.get("working")])
-                pbar.set_postfix(
-                    {"Valides": working_count, "Échoués": len(results) - working_count}
-                )
+    results = validate_entries(entries, check_stream_with_ffprobe, "ffprobe", args)
 
     working = [r for r in results if r.get("working")]
     failed = [r for r in results if not r.get("working")]
@@ -139,8 +132,10 @@ def main() -> None:
     best_streams = filter_best_quality(working)
     logger.info(f"🔝 {len(best_streams)} flux sélectionnés avec la meilleure qualité.")
 
+    output_ok = save_outputs(results, best_streams, args)
     if best_streams:
-        write_playlist(best_streams, args.output)
+        if not output_ok:
+            return 1
         logger.info(f"💾 Playlist enregistrée dans '{args.output}'")
 
         # Show some examples of selected streams
@@ -158,6 +153,8 @@ def main() -> None:
     else:
         logger.warning("⚠️  Aucun flux valide trouvé.")
 
+    return 0 if output_ok else 1
+
 
 if __name__ == "__main__":
-    main()
+    sys.exit(main())

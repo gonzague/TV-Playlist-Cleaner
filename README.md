@@ -127,6 +127,63 @@ cd TV-playlist-cleaner
 
 ## 📖 Utilisation
 
+### Interface web locale
+
+```bash
+uv sync --extra web
+uv run --extra web tv-playlist-web
+```
+
+Ouvrir **http://127.0.0.1:8765** dans un navigateur. L'interface accepte une URL,
+un fichier `.m3u` / `.m3u8` ou une catégorie de sources, dont iptv-org France.
+Elle utilise le même moteur que les scripts en ligne de commande : curl ou
+ffprobe, sélection de la qualité, en-têtes VLC/Kodi, nouvelles tentatives et cache.
+
+- Progression réelle, annulation et reprise de l'affichage après rechargement.
+- Grille de chaînes avec logos, qualité et statut ; clic sur une carte pour lire,
+  accès au clavier (Entrée/Espace), recherche, filtres et pagination.
+- Lecteur vidéo intégré sur les flux valides (HLS, MP4 et formats natifs du navigateur),
+  changement de chaîne, arrêt et téléchargement individuel pour VLC.
+- Logos `tvg-logo` de la playlist ; complément via [iptv-org](https://github.com/iptv-org/api#logos)
+  par identifiant `tvg-id` exact (chaîne et feed), avec cache local de 24 heures.
+  Les logos retrouvés sont également ajoutés au M3U exporté.
+- Téléchargement de la playlist, du rapport JSON et du rapport CSV.
+- Réglages du parallélisme, du timeout, des tentatives et du cache.
+
+L'interface écoute uniquement sur la machine locale. Elle ne nécessite ni compte,
+ni compilation JavaScript. Le catalogue iptv-org est facultatif : si son accès échoue,
+le cache existant et les logos de la playlist restent utilisables. Les requêtes vers les sources et
+les flux partent de la machine où le serveur Python tourne. Installer FFmpeg pour
+le mode d'analyse complète ; si seul curl est disponible, le mode rapide est proposé.
+
+La lecture se fait directement depuis le navigateur, au clic sur **Lire**. Un flux
+validé par curl/ffprobe peut rester illisible dans le navigateur : CORS, codec,
+géoblocage ou authentification du diffuseur. Les flux avec en-têtes VLC/Kodi
+spécifiques sont proposés en téléchargement M3U, ces en-têtes n'étant pas
+reproductibles de manière fiable dans une vidéo HTML. Aucun proxy vidéo,
+transcodage ou contournement de DRM n'est ajouté. Les logos sont chargés depuis
+leur hébergeur ; une image absente affiche les initiales de la chaîne.
+
+HLS.js **1.7.4** est distribué localement avec sa licence Apache-2.0 dans
+`playlist_web/static/vendor` (source : paquet npm `hls.js@1.7.4`, fichiers
+`dist/hls.min.js` et `LICENSE`). Aucun script n'est chargé depuis un CDN à l'exécution.
+
+```bash
+# Changer le port ou le répertoire des résultats
+uv run --extra web tv-playlist-web --port 8766 --data-dir ./resultats-web
+```
+
+Les données sont enregistrées par défaut dans `~/.cache/tv-playlist-cleaner/web`.
+Une seule analyse s'exécute à la fois ; les dix dernières analyses au maximum
+restent accessibles pendant la session. Les résultats de plus de 24 heures sont
+supprimés au démarrage ou lors d'une nouvelle analyse. Après redémarrage du serveur,
+les anciens téléchargements restent dans le répertoire local jusqu'au nettoyage,
+mais ne sont plus listés par l'interface. La version web limite une analyse à
+50 Mo par playlist et 10 000 entrées ; les scripts CLI restent disponibles pour
+les traitements plus volumineux. L'annulation attend la fin des requêtes déjà
+engagées (jusqu'au timeout courant), puis empêche le lancement des suivantes.
+Arrêter le serveur avec `Ctrl+C` dans le terminal qui l'a lancé.
+
 ### 🎯 Script Recommandé (Configuration par catégories)
 
 ```bash
@@ -162,7 +219,106 @@ python cleaner_advanced.py --workers 20 --output ma_playlist.m3u
 
 # Script de base
 python cleaner.py
+
+# Traiter un fichier local avec analyse de la résolution réelle (nécessite FFmpeg)
+python cleaner.py --input ma_playlist.m3u --validator ffprobe --output nettoyee.m3u
+
+# Tester rapidement la disponibilité HTTP d'une playlist distante
+python cleaner.py --url https://example.com/playlist.m3u --workers 20 --timeout 10
 ```
+
+Le script principal (`cleaner.py`, également accessible avec `tv-playlist-cleaner`)
+accepte `--url` ou `--input`, ainsi que `--output`, `--workers` (1 à 50),
+`--timeout` (1 à 60 secondes), `--validator` et `--verbose`.
+Sans argument, il conserve sa source française et sa vérification avec curl.
+Il renvoie le code `0` lorsqu'une playlist est écrite, `1` en cas d'échec ou
+d'absence de flux valide et `2` pour des arguments incorrects.
+
+Le mode curl vérifie la disponibilité HTTP avec une requête HEAD et suit jusqu'à
+cinq redirections HTTP(S), conformément aux [options de curl](https://curl.se/docs/manpage.html).
+Il ne prouve pas que le média est lisible ; les serveurs refusant HEAD peuvent
+être rejetés. Utiliser `--validator ffprobe` pour analyser le média et mesurer
+la résolution. Les en-têtes VLC/Kodi pris en charge sont appliqués aux deux
+validateurs et les directives restent conservées dans le fichier de sortie.
+
+Les lecteurs M3U acceptent désormais les lignes vides et les directives entre
+`#EXTINF` et l'URL, les fichiers UTF-8 avec BOM et les virgules dans les attributs
+entre guillemets. Les noms d'origine sont conservés à l'export. L'écriture est
+atomique : une erreur d'écriture laisse la playlist précédente intacte.
+
+### Rapports, nouvelles tentatives et cache
+
+Ces options sont disponibles dans `cleaner.py`, `cleaner_advanced.py`,
+`cleaner_multi_source.py` et `cleaner_tnt.py`, ainsi que via `cleaner_config.py`.
+
+```bash
+uv run tv-playlist-cleaner --input ma_playlist.m3u --validator ffprobe \
+  --output nettoyee.m3u \
+  --report-json rapport.json --report-csv rapport.csv \
+  --retries 2 --retry-delay 0.5 \
+  --cache verification-cache.json --cache-ttl 3600
+```
+
+| Option | Fonction | Défaut |
+|--------|----------|--------|
+| `--report-json FILE` | Rapport structuré avec bilan et résultat de chaque entrée | Désactivé |
+| `--report-csv FILE` | Une ligne par entrée, utilisable dans un tableur | Désactivé |
+| `--retries N` | Nouvelles tentatives après une erreur temporaire, de 0 à 5 | `2` |
+| `--retry-delay SECONDS` | Délai initial, doublé entre tentatives, plafonné à 30 s | `0.5` |
+| `--cache FILE` | Cache persistant des vérifications réussies | Désactivé |
+| `--cache-ttl SECONDS` | Durée de validité du cache ; `0` force une nouvelle vérification | `3600` |
+
+Les nouvelles tentatives concernent les téléchargements de playlists et les
+vérifications de flux : timeouts, problèmes réseau temporaires et erreurs HTTP
+408, 425, 429, 500, 502, 503 et 504. Les erreurs permanentes telles que 403 et
+404 ne sont pas relancées. Avec `--retries 2`, un flux peut donc être testé
+trois fois ; le timeout s'applique à chaque tentative.
+
+Les rapports distinguent `selected` (conservé), `invalid` (échec de validation)
+et `discarded` (doublon ou qualité inférieure). Ils indiquent la qualité,
+l'erreur, le validateur, le nombre de tentatives, l'utilisation du cache et la
+réutilisation d'un résultat pour une entrée identique. Le JSON précise aussi si
+la playlist a pu être écrite. Une entrée par flux est conservée dans les rapports,
+y compris pour les doublons. Les rapports sont produits après la validation,
+même si tous les flux échouent ; un échec de chargement de la source reste signalé
+dans le journal. Les variantes TNT rapportent uniquement les chaînes retenues
+par leur filtre TNT. Les fichiers contiennent les URL d'origine : les conserver
+localement si elles incluent des identifiants d'accès.
+
+Le cache distingue URL, en-têtes HTTP effectifs, validateur et timeout. Il ne
+stocke ni URL ni en-têtes en clair, et ne mémorise pas les échecs. Les entrées
+expirées sont ignorées ; un cache corrompu entraîne une nouvelle vérification.
+Les résultats identiques sont également réutilisés au sein d'une même exécution.
+Le cache est limité aux 10 000 vérifications les plus récentes. L'écriture des
+rapports et du cache est atomique. Utiliser un fichier de cache distinct par tâche
+si plusieurs exécutions tournent simultanément : le dernier enregistrement prévaut.
+
+### En-têtes VLC et Kodi
+
+Exemple d'entrée nécessitant un User-Agent et un Referer :
+
+```m3u
+#EXTINF:-1,Ma chaîne
+#EXTVLCOPT:http-user-agent=MonLecteur/1.0
+#EXTVLCOPT:http-referrer=https://example.com/player
+#KODIPROP:inputstream.adaptive.common_headers=Origin=https%3A%2F%2Fexample.com&Cookie=session%3Dexemple
+https://example.com/stream.m3u8
+```
+
+Les options VLC `http-user-agent`, `http-referrer` / `http-referer`, `http-origin`
+et `http-cookie` sont reconnues. Les propriétés Kodi `common_headers`,
+`stream_headers` et `manifest_headers` acceptent des paires `Nom=Valeur` séparées
+par `&`, avec valeurs encodées comme dans une URL, selon la
+[documentation InputStream Adaptive](https://github.com/xbmc/inputstream.adaptive/wiki/Integration#inputstreamadaptivecommon_headers).
+La syntaxe historique `URL|User-Agent=...&Referer=...` est aussi acceptée par le
+nettoyeur ; préférer les directives explicites pour les lecteurs récents.
+
+La priorité est VLC, puis Kodi commun, flux, manifeste et enfin suffixe d'URL.
+curl et ffprobe reçoivent un jeu d'en-têtes commun à leurs requêtes : si Kodi
+déclare des valeurs différentes pour un même en-tête entre manifeste et segments,
+la validation échoue avec un message explicite. La configuration DRM et les
+requêtes de licence ne sont pas traitées. Les noms d'en-tête invalides et les
+caractères de contrôle sont rejetés avant toute requête.
 
 ### 🛠️ Scripts Utilitaires
 

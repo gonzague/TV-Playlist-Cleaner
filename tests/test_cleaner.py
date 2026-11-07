@@ -251,6 +251,7 @@ http://example.com/france2.m3u8"""
         mock_get_tool_path.return_value = "/usr/bin/curl"
         mock_result = MagicMock()
         mock_result.returncode = 1
+        mock_result.stdout = ""
         mock_result.stderr = "404 Not Found"
         mock_run.return_value = mock_result
 

@@ -31,6 +31,7 @@ dependencies = [
 ]
 
 [project.optional-dependencies]
+web = ["flask>=3.0,<4", "waitress>=2.1,<4"]
 dev = [
     "pytest>=6.0",
     "pytest-cov>=2.0",
@@ -41,6 +42,7 @@ dev = [
 
 [project.scripts]
 tv-playlist-cleaner = "cleaner:main"
+tv-playlist-web = "playlist_web:main"
 
 [project.urls]
 Homepage = "https://github.com/yourusername/TV-playlist-cleaner"
@@ -117,9 +119,7 @@ exclude_dirs = ["tests", ".venv", "htmlcov", ".pytest_cache"]
 skips = ["B101"]
 
 [tool.hatch.build.targets.wheel]
-only-include = ["*.py"]
-exclude = ["tests/*"]
+include = ["/*.py", "/playlist_web"]
 
 [tool.hatch.build.targets.sdist]
-only-include = ["*.py", "pyproject.toml"]
-exclude = ["tests/*"]
+include = ["/*.py", "/playlist_web", "/pyproject.toml", "/README.md", "/LICENSE", "/tests"]

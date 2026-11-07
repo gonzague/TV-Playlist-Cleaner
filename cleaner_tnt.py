@@ -7,16 +7,23 @@ name matching and quality selection.
 """
 
 import re
-import hashlib
 import argparse
 import logging
-from concurrent.futures import ThreadPoolExecutor, as_completed
+import sys
 from typing import List, Dict, Any, Optional
-from tqdm import tqdm
+
+from validation_pipeline import (
+    add_processing_arguments,
+    validate_processing_arguments,
+    validate_entries,
+    save_outputs,
+)
 
 # Import shared utilities
 from playlist_utils import (
     download_playlist,
+    parse_m3u,
+    request_identity,
     check_stream_with_ffprobe,
     filter_best_quality,
     write_playlist,
@@ -383,49 +390,16 @@ def parse_m3u_tnt_filter(
         List of TNT channel entries with normalized names and hashes
     """
     entries = []
-    lines = m3u_text.strip().splitlines()
-    i = 0
-
-    while i < len(lines):
-        if lines[i].startswith("#EXTINF"):
-            info = lines[i]
-            i += 1
-            if i < len(lines) and not lines[i].startswith("#"):
-                url = lines[i].strip()
-
-                # Skip invalid URLs
-                if not url or url.startswith("#"):
-                    i += 1
-                    continue
-
-                # Try to extract channel name from tvg-name attribute first, then from the end of the line
-                tvg_match = re.search(r'tvg-name="([^"]+)"', info)
-                if tvg_match:
-                    name = tvg_match.group(1).strip()
-                else:
-                    # Extract from the end of the line after the comma
-                    name_match = re.search(r",(.+)$", info)
-                    name = name_match.group(1).strip() if name_match else "Unknown"
-
-                # Check if this is a TNT channel
-                tnt_channel = is_tnt_channel(name)
-                if tnt_channel:
-                    # Generate normalized name and hash (using SHA256 instead of MD5)
-                    normalized_name = normalize_channel_name(name)
-                    stream_hash = hashlib.sha256(url.encode()).hexdigest()[:16]
-
-                    entries.append(
-                        {
-                            "name": name,
-                            "tnt_name": tnt_channel,  # Official TNT name
-                            "normalized_name": normalized_name,
-                            "stream_hash": stream_hash,
-                            "info": info,
-                            "url": url,
-                            "source": source_name,
-                        }
-                    )
-        i += 1
+    for entry in parse_m3u(m3u_text):
+        tnt_channel = is_tnt_channel(entry["name"])
+        if tnt_channel:
+            entry.update(
+                tnt_name=tnt_channel,
+                normalized_name=normalize_channel_name(entry["name"]),
+                stream_hash=request_identity(entry),
+                source=source_name,
+            )
+            entries.append(entry)
 
     logger.debug(f"Found {len(entries)} TNT channels from {source_name}")
     return entries
@@ -475,7 +449,9 @@ def parse_arguments() -> argparse.Namespace:
         "--sources", nargs="+", help="Sources M3U personnalisées (URLs)"
     )
 
+    add_processing_arguments(parser)
     args = parser.parse_args()
+    validate_processing_arguments(args, parser)
 
     # Validate arguments
     if not (1 <= args.workers <= 50):
@@ -487,7 +463,7 @@ def parse_arguments() -> argparse.Namespace:
     return args
 
 
-def main() -> None:
+def main() -> int:
     """Main entry point for the TNT playlist cleaner."""
     args = parse_arguments()
 
@@ -497,7 +473,7 @@ def main() -> None:
     logger.info("🔍 Vérification des outils...")
     if not check_tool_availability("ffprobe"):
         logger.error("❌ ffprobe n'est pas installé. Veuillez installer FFmpeg.")
-        return
+        return 1
     logger.info("✅ ffprobe disponible")
 
     # Use custom sources or default
@@ -510,7 +486,12 @@ def main() -> None:
 
     for i, url in enumerate(sources, 1):
         logger.info(f"  [{i}/{len(sources)}] Téléchargement de {url[:60]}...")
-        m3u_text = download_playlist(url, timeout=args.timeout)
+        m3u_text = download_playlist(
+            url,
+            timeout=args.timeout,
+            retries=args.retries,
+            retry_delay=args.retry_delay,
+        )
 
         if m3u_text:
             source_name = url.split("/")[-2] if "/" in url else f"Source{i}"
@@ -522,10 +503,6 @@ def main() -> None:
 
     logger.info(f"🎬 Total: {len(all_entries)} flux TNT de toutes les sources")
 
-    # Deduplicate
-    logger.info("🔄 Dédoublonnage des flux...")
-    all_entries = deduplicate_streams(all_entries)
-
     # Show which TNT channels were found
     found_channels = set(entry.get("tnt_name") for entry in all_entries)
     missing_channels = set(TNT_CHANNELS) - found_channels
@@ -535,29 +512,7 @@ def main() -> None:
 
     # Process streams with progress bar
     logger.info("⏳ Test des flux (cela peut prendre du temps)...")
-    results: List[Dict[str, Any]] = []
-
-    with ThreadPoolExecutor(max_workers=args.workers) as executor:
-        # Submit all tasks
-        future_to_entry = {
-            executor.submit(check_stream_with_ffprobe, entry, args.timeout): entry
-            for entry in all_entries
-        }
-
-        # Process results with progress bar (as_completed for better performance)
-        with tqdm(
-            total=len(all_entries), desc="Test des flux TNT", unit="flux"
-        ) as pbar:
-            for future in as_completed(future_to_entry):
-                result = future.result()
-                results.append(result)
-                pbar.update(1)
-
-                # Update stats
-                working_count = len([r for r in results if r.get("working")])
-                pbar.set_postfix(
-                    {"Valides": working_count, "Échoués": len(results) - working_count}
-                )
+    results = validate_entries(all_entries, check_stream_with_ffprobe, "ffprobe", args)
 
     working = [r for r in results if r.get("working")]
     failed = [r for r in results if not r.get("working")]
@@ -595,8 +550,10 @@ def main() -> None:
     working_tnt_channels = set(entry.get("tnt_name") for entry in best_streams)
     logger.info(f"📺 {len(working_tnt_channels)}/25 chaînes TNT disponibles")
 
+    output_ok = save_outputs(results, best_streams, args)
     if best_streams:
-        write_playlist(best_streams, args.output)
+        if not output_ok:
+            return 1
         logger.info(f"💾 Playlist TNT enregistrée dans '{args.output}'")
 
         # Show all TNT channels found
@@ -627,6 +584,8 @@ def main() -> None:
     else:
         logger.warning("⚠️  Aucun flux TNT valide trouvé.")
 
+    return 0 if output_ok else 1
+
 
 if __name__ == "__main__":
-    main()
+    sys.exit(main())
