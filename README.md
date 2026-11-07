@@ -518,3 +518,12 @@ Si vous rencontrez des problèmes ou avez des questions :
 ---
 
 ⭐ Si ce projet vous a été utile, n'hésitez pas à lui donner une étoile ! 
+
+### Couverture dans GitHub Actions
+
+La CI installe FFmpeg pour exécuter les tests multimédias et archive les rapports
+`coverage.xml` et HTML dans l’artefact **coverage-report** du workflow.
+L’envoi externe à Codecov est optionnel : après activation du dépôt dans Codecov,
+définir la variable GitHub Actions `CODECOV_ENABLED` à `true`. Un seul job
+(Python 3.11) envoie le rapport, avec l’authentification OIDC de GitHub.
+Un échec de cet envoi activé est signalé comme un échec du workflow.

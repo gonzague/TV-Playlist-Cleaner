@@ -65,8 +65,9 @@ jobs:
           htmlcov/
         if-no-files-found: error
 
+    # Enable only after the repository has been activated in Codecov.
     - name: 📊 Upload coverage to Codecov
-      if: matrix.python-version == '3.11'
+      if: matrix.python-version == '3.11' && vars.CODECOV_ENABLED == 'true'
       uses: codecov/codecov-action@v7.1.1
       with:
         files: ./coverage.xml
