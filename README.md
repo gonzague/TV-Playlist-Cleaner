@@ -168,9 +168,19 @@ du média, aux variantes HLS, aux segments et aux clés de la même origine. Le 
 prend en charge `User-Agent`, `Referer`, `Origin`, `Cookie`, `Authorization`,
 `Accept`, `Accept-Language` et les en-têtes `X-*`. Les lectures de fichiers gèrent
 les requêtes partielles (HTTP Range). Un changement de domaine, de port ou de
-protocole dans le flux relayé nécessite VLC. Le téléchargement individuel conserve
+protocole dans le flux relayé nécessite généralement VLC. Les chaînes BFM qui déclarent
+uniquement un `User-Agent` peuvent suivre les redirections HTTPS de leur CDN SFR. Le téléchargement individuel conserve
 les réglages d’origine. La compatibilité du codec et les droits d’accès du diffuseur
 restent nécessaires. Les logos sont chargés depuis leur hébergeur.
+
+**Diffuser sur un téléviseur.** Depuis la carte d’une chaîne, cliquez sur
+**Chromecast** pour rechercher les récepteurs vidéo du réseau local, puis sur le
+nom du récepteur. La vidéo locale se met en pause quand le Chromecast confirme la
+lecture. Dans Safari, **AirPlay** ouvre le sélecteur Apple. Pour un flux à en-têtes,
+un premier clic prépare le média et un second ouvre le sélecteur. Le Mac et le
+récepteur doivent pouvoir communiquer. Pour ces flux, le serveur ouvre sur
+l’interface IPv4 locale un port dédié au média, avec une URL temporaire qui expire
+après 15 minutes d’inactivité. L’interface de gestion reste sur la boucle locale.
 
 HLS.js **1.7.4** est distribué localement avec sa licence Apache-2.0 dans
 `playlist_web/static/vendor` (source : paquet npm `hls.js@1.7.4`, fichiers
@@ -182,11 +192,11 @@ uv run --extra web tv-playlist-web --port 8766 --data-dir ./resultats-web
 ```
 
 Les données sont enregistrées par défaut dans `~/.cache/tv-playlist-cleaner/web`.
-Une seule analyse s'exécute à la fois ; les dix dernières analyses au maximum
-restent accessibles pendant la session. Les résultats de plus de 24 heures sont
-supprimés au démarrage ou lors d'une nouvelle analyse. Après redémarrage du serveur,
-les anciens téléchargements restent dans le répertoire local jusqu'au nettoyage,
-mais ne sont plus listés par l'interface. La version web limite une analyse à
+L’accueil reprend automatiquement la dernière analyse du serveur. Le menu
+**Historique des nettoyages** donne accès aux dix derniers résultats terminés,
+y compris après redémarrage. **Lien vers ce résultat** permet de rouvrir une
+analyse précise dans un autre navigateur sur la même machine. Une seule analyse
+s’exécute à la fois. La version web limite une analyse à
 50 Mo par playlist et 10 000 entrées ; les scripts CLI restent disponibles pour
 les traitements plus volumineux. L'annulation attend la fin des requêtes déjà
 engagées (jusqu'au timeout courant), puis empêche le lancement des suivantes.

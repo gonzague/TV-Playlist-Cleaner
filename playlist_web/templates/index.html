@@ -77,6 +77,11 @@
       </section>
       <section class="results" aria-labelledby="results-title">
         <div class="results-heading"><div><h2 id="results-title">Résultats</h2><p id="status-label" role="status">Aucune analyse lancée</p></div><button class="secondary cancel" id="cancel-button" type="button" hidden>Annuler</button></div>
+        <div class="source-panel" id="history-panel" hidden>
+          <label for="analysis-history">Historique des nettoyages</label>
+          <select id="analysis-history"></select>
+          <a class="text-button" id="analysis-link" hidden>Lien vers ce résultat</a>
+        </div>
         <div id="empty-state" class="empty-state">
           <svg class="empty-icon" viewBox="0 0 88 78" aria-hidden="true"><rect x="4" y="4" width="80" height="70" rx="10"/><path d="m16 23 4 4 8-9m-12 24 4 4 8-9m-12 24 4 4 8-9M40 23h28M40 42h28M40 61h28"/></svg>
           <h3>Votre prochaine playlist commence ici</h3>
@@ -95,10 +100,12 @@
           <div class="downloads" aria-label="Télécharger les résultats" id="downloads"></div>
           <section class="player" id="player-panel" aria-labelledby="player-title" hidden>
             <div class="player-heading"><div id="player-identity"></div><button type="button" class="secondary" id="close-player" aria-label="Fermer le lecteur">Fermer</button></div>
-            <video id="channel-video" controls playsinline preload="none" aria-label="Lecteur de la chaîne"></video>
+            <video id="channel-video" controls playsinline x-webkit-airplay="allow" preload="none" aria-label="Lecteur de la chaîne"></video>
             <p id="player-status" role="status" class="hint"></p>
-            <div class="player-actions"><button type="button" class="secondary" id="retry-player">Réessayer</button><a class="secondary" id="player-vlc" download>Télécharger pour VLC</a></div>
+            <div class="player-actions"><button type="button" class="secondary" id="retry-player">Réessayer</button><button type="button" class="secondary" id="cast-picker">Chromecast</button><button type="button" class="secondary" id="airplay-picker" hidden>AirPlay</button><a class="secondary" id="player-vlc" download>Télécharger pour VLC</a></div>
             <p class="hint">La lecture dépend du format et des autorisations du diffuseur. Si elle échoue, ouvrez le fichier M3U dans VLC.</p>
+            <div id="cast-devices" class="player-actions" hidden></div>
+            <p id="tv-status" class="hint" role="status"></p>
           </section>
           <div class="results-tools"><label class="sr-only" for="search">Rechercher une chaîne</label><input id="search" type="search" placeholder="Rechercher une chaîne…" autocomplete="off"><label class="sr-only" for="status-filter">Filtrer les résultats</label><select id="status-filter"><option value="all">Tous les flux</option><option value="selected">Conservés</option><option value="invalid">Invalides</option><option value="discarded">Écartés</option></select></div>
           <div class="metadata-filters">

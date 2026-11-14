@@ -93,7 +93,8 @@ async function start(event) {
     state.page = 0;
     $("search").value = "";
     $("status-filter").value = "all";
-    try { localStorage.setItem("playlist-cleaner-job", state.job); } catch { /* Optional resume. */ }
+    window.history.replaceState(null, "", analysisUrl(state.job));
+    show("history-panel", false);
     show("empty-state", false);
     show("how-it-works", false);
     show("completed-state", false);
@@ -143,20 +144,22 @@ async function poll() {
       state.rows = report.streams;
       renderCompleted(job);
       state.rendered = job.id;
+      await refreshHistory();
     } else if (job.state === "failed") {
       notice("result-message", job.error || "L'analyse n'a pas abouti.", "error");
     } else if (job.state === "cancelled") {
       notice("result-message", "Analyse annulée. Vous pouvez choisir une autre source et recommencer.");
     }
     if (busy) state.timer = setTimeout(poll, 800);
+    else if (job.state !== "completed") await refreshHistory();
   } catch (error) {
     if (iteration !== state.pollSerial || state.job !== jobId) return;
     if (error.status === 404) {
       state.job = null;
-      try { localStorage.removeItem("playlist-cleaner-job"); } catch { /* Optional resume. */ }
+      await refreshHistory();
       setBusy(false);
       show("running-state", false);
-      notice("result-message", "Cette analyse n'est plus disponible. Vous pouvez en lancer une nouvelle.");
+      notice("result-message", "Cette analyse n'est plus disponible. Choisissez un nettoyage dans l’historique ou lancez une analyse.");
     } else {
       state.connectionLost = true;
       notice("result-message", "Connexion au serveur interrompue. Nouvelle tentative dans quelques secondes…", "warning");
@@ -200,8 +203,98 @@ function channelLogo(row) {
   return box;
 }
 
+let airplayReady = false;
+
+function resetTelevision() {
+  airplayReady = false;
+  $("cast-devices").replaceChildren();
+  show("cast-devices", false);
+  $("cast-picker").disabled = $("airplay-picker").disabled = false;
+  $("airplay-picker").textContent = "AirPlay";
+  text("tv-status", "");
+}
+
+function televisionPath(row, method) {
+  return `/api/jobs/${state.job}/streams/${row.index}/television/${method}`;
+}
+
+$("cast-picker").addEventListener("click", async () => {
+  const row = player.row, generation = player.generation;
+  if (!row) return;
+  const picker = $("cast-picker"), list = $("cast-devices");
+  picker.disabled = true;
+  list.replaceChildren();
+  show("cast-devices", false);
+  text("tv-status", "Recherche de Chromecast sur le réseau…");
+  try {
+    const { devices } = await api("/api/television/devices", { method: "POST" });
+    if (generation !== player.generation) return;
+    for (const device of devices) {
+      const button = element("button", "secondary", device.name);
+      button.type = "button";
+      button.addEventListener("click", async () => {
+        list.replaceChildren();
+        show("cast-devices", false);
+        picker.disabled = true;
+        text("tv-status", "Connexion à " + device.name + "…");
+        try {
+          const form = new FormData();
+          form.set("device", device.id);
+          await api(televisionPath(row, "chromecast"), { method: "POST", body: form });
+          if (generation !== player.generation) return;
+          $("channel-video").pause();
+          text("tv-status", "Lecture sur " + device.name + ". Utilisez sa télécommande pour arrêter.");
+        } catch (error) {
+          if (generation === player.generation) text("tv-status", error.message);
+        } finally {
+          if (generation === player.generation) picker.disabled = false;
+        }
+      });
+      list.append(button);
+    }
+    show("cast-devices", devices.length > 0);
+    text("tv-status", devices.length ? "Choisissez le Chromecast." : "Aucun Chromecast vidéo détecté sur ce réseau.");
+  } catch (error) {
+    if (generation === player.generation) text("tv-status", error.message);
+  } finally {
+    if (generation === player.generation) picker.disabled = false;
+  }
+});
+
+$("airplay-picker").addEventListener("click", async () => {
+  const video = $("channel-video"), row = player.row, generation = player.generation;
+  if (!row || !video.webkitShowPlaybackTargetPicker) return;
+  if (!row.needs_headers || airplayReady) {
+    video.webkitShowPlaybackTargetPicker();
+    return;
+  }
+  const picker = $("airplay-picker");
+  picker.disabled = true;
+  try {
+    const { url } = await api(televisionPath(row, "airplay"), { method: "POST" });
+    if (generation !== player.generation) return;
+    // Safari's picker requires a fresh user gesture after the asynchronous setup.
+    if (player.hls) { player.hls.destroy(); player.hls = null; }
+    video.src = url;
+    show("channel-video", true);
+    video.play().catch(() => {});
+    airplayReady = true;
+    picker.textContent = "Choisir un appareil AirPlay";
+    text("tv-status", "Le flux est prêt. Cliquez pour choisir le récepteur AirPlay.");
+  } catch (error) {
+    if (generation === player.generation) text("tv-status", error.message);
+  } finally {
+    if (generation === player.generation) picker.disabled = false;
+  }
+});
+
+$("channel-video").addEventListener("webkitcurrentplaybacktargetiswirelesschanged", () => {
+  if (player.row) text("tv-status", $("channel-video").webkitCurrentPlaybackTargetIsWireless ? "AirPlay connecté." : "AirPlay déconnecté.");
+});
+
 function stopPlayer() {
   player.generation++;
+  resetTelevision();
   clearTimeout(player.timer);
   const video = $("channel-video");
   video.onplaying = video.onerror = video.onwaiting = video.oncanplay = video.onpause = null;
@@ -218,6 +311,7 @@ async function playChannel(row) {
   stopPlayer();
   const generation = player.generation;
   player.row = row;
+  show("airplay-picker", typeof $("channel-video").webkitShowPlaybackTargetPicker === "function");
   updateCurrentCard();
   const video = $("channel-video");
   const title = element("h3", "", row.name);
@@ -273,7 +367,7 @@ async function playChannel(row) {
     });
   };
   const isFile = /\.(mp4|m4v|webm|ogv|mp3|m4a|ogg)(?:$|[?#])/i.test(sourceUrl);
-  if (!isFile && !video.canPlayType("application/vnd.apple.mpegurl") && window.Hls?.isSupported()) {
+  if (!isFile && window.Hls?.isSupported() && !(video.webkitShowPlaybackTargetPicker && video.canPlayType("application/vnd.apple.mpegurl"))) {
     const hls = new Hls({ maxBufferLength: 20, backBufferLength: 30 });
     player.hls = hls;
     hls.on(Hls.Events.ERROR, (_, data) => {
@@ -440,6 +534,32 @@ $("dropzone").addEventListener("drop", (event) => {
   if (!$("form-fields").disabled && event.dataTransfer.files.length) { $("playlist-file").files = event.dataTransfer.files; fileChanged(); }
 });
 
+function analysisUrl(id) {
+  const url = new URL(window.location.href);
+  url.searchParams.set("analyse", id);
+  return url.href;
+}
+
+async function refreshHistory() {
+  const { jobs } = await api("/api/jobs");
+  const select = $("analysis-history");
+  const choices = jobs.map(job => {
+    const date = new Date(job.created_at * 1000).toLocaleString("fr-FR");
+    const detail = job.state === "completed" ? number.format(job.total) + " flux" : "En cours";
+    return new Option(`${date} · ${job.source} · ${detail}`, job.id);
+  });
+  select.replaceChildren(...choices);
+  select.value = state.job || "";
+  show("history-panel", choices.length > 0);
+  show("analysis-link", Boolean(select.value));
+  if (select.value) $("analysis-link").href = analysisUrl(select.value);
+  return jobs;
+}
+
+$("analysis-history").addEventListener("change", event => {
+  if (event.target.value) window.location.assign(analysisUrl(event.target.value));
+});
+
 (async function init() {
   try {
     state.config = await api("/api/config");
@@ -452,8 +572,12 @@ $("dropzone").addEventListener("drop", (event) => {
       text("tool-warning", `${missing.join(" et ")} introuvable${missing.length > 1 ? "s" : ""}. Installez ${missing.includes("ffprobe") ? "FFmpeg" : "curl"} puis rechargez la page.`);
       show("tool-warning", true);
     }
-    setBusy(false);
-    try { state.job = localStorage.getItem("playlist-cleaner-job"); } catch { /* Optional resume. */ }
-    if (state.job) await poll();
+    const jobs = await refreshHistory();
+    const requested = new URL(window.location.href).searchParams.get("analyse");
+    state.job = requested && /^[a-f0-9]{32}$/.test(requested) ? requested : jobs[0]?.id;
+    if (state.job) {
+      $("analysis-history").value = state.job;
+      await poll();
+    } else { setBusy(false); }
   } catch (error) { notice("form-error", `Impossible de joindre le serveur. ${error.message}`, "error"); }
 })();

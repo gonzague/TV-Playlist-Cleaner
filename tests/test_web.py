@@ -276,3 +276,47 @@ def test_cancel_stops_probes_and_downloads_before_start():
         with pytest.raises(CancelledError):
             download_playlist("http://example.com", cancel_event=event)
     get.assert_not_called()
+
+
+def test_history_survives_restart_and_new_clients(app, tmp_path):
+    first = app.test_client()
+    with patch("playlist_web.check_stream_with_curl", side_effect=working) as probe:
+        older = finished(first, upload(first, filename="ancienne.m3u").json["id"])
+        newest = finished(first, upload(first, filename="recente.m3u").json["id"])
+        before = probe.call_count
+        # Simulate a report from a release without persisted job metadata.
+        directory = tmp_path / "web"
+        legacy = directory / older["id"] / "browser.json"
+        report = json.loads(legacy.read_text())
+        del report["analysis"]
+        legacy.write_text(json.dumps(report))
+        import os
+
+        os.utime(legacy, (1, 1))
+        restarted = create_app(directory)
+        try:
+            other = restarted.test_client()
+            jobs = other.get("/api/jobs").json["jobs"]
+            assert [j["id"] for j in jobs] == [newest["id"], older["id"]]
+            assert [j["source"] for j in jobs] == ["recente.m3u", "ancienne.m3u"]
+            assert other.get(newest["downloads"]["playlist"]).status_code == 200
+            assert (
+                other.get(f"/api/jobs/{older['id']}/results").json["streams"][0]["name"]
+                == "Test"
+            )
+            assert probe.call_count == before
+        finally:
+            restarted.extensions["jobs"].close()
+
+
+def test_history_retains_ten_completed_results(client):
+    ids = []
+    with patch("playlist_web.check_stream_with_curl", side_effect=working):
+        for i in range(11):
+            ids.append(
+                finished(client, upload(client, filename=f"{i}.m3u").json["id"])["id"]
+            )
+        failed = finished(client, upload(client, text="not a playlist").json["id"])
+    assert failed["state"] == "failed"
+    assert [j["id"] for j in client.get("/api/jobs").json["jobs"]] == ids[:0:-1]
+    assert client.get(f"/api/jobs/{ids[0]}").status_code == 404

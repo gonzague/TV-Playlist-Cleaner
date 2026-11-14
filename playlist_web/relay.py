@@ -54,8 +54,23 @@ class Playback:
         self.resources = OrderedDict()
         self.lock = threading.Lock()
 
+    def permits(self, url):
+        if not http_url(url):
+            return False
+        target = origin(url)
+        if target == self.origin:
+            return True
+        # SFR sends BFM viewers from its entry point to a regional edge server.
+        return (
+            self.origin == ("https", "ncdn-live-bfm.pfd.sfr.net", 443)
+            and set(self.headers) == {"user-agent"}
+            and target[0] == "https"
+            and target[2] == 443
+            and target[1].endswith(".pfd.sfr.net")
+        )
+
     def path(self, url):
-        if not http_url(url) or origin(url) != self.origin:
+        if not self.permits(url):
             raise ValueError(
                 "Le flux utilise une autre origine. Ouvrez le M3U dans VLC."
             )
@@ -149,8 +164,10 @@ def media_response(playback, resource):
                 break
             target = urljoin(url, upstream.headers["Location"])
             upstream.close()
-            if not http_url(target) or origin(target) != playback.origin:
+            if not playback.permits(target):
                 raise ValueError("Redirection vers une autre origine.")
+            if origin(url) != origin(target):
+                client.cookies.clear()
             url = target
         if upstream.status_code not in (200, 206):
             abort(416 if upstream.status_code == 416 else 502)

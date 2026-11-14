@@ -39,6 +39,8 @@ from validation_pipeline import (
 from .media import LogoCatalog, playback_metadata
 from .metadata import ChannelCatalog
 from .relay import PlaybackPool, media_response
+from .television import Television
+from pychromecast.error import PyChromecastError
 
 logger = logging.getLogger(__name__)
 DEFAULT_URL = "https://iptv-org.github.io/iptv/countries/fr.m3u"
@@ -109,26 +111,115 @@ class JobManager:
         self.events = {}
         self.logos = LogoCatalog(self.directory)
         self.catalog = ChannelCatalog(self.directory)
+        self.restore()
         self.prune()
+
+    def downloads(self, folder):
+        return {
+            key: f"/api/jobs/{folder.name}/download/{key}"
+            for key, (name, _) in ARTIFACTS.items()
+            if (folder / name).is_file()
+        }
+
+    def restore(self):
+        for folder in self.directory.iterdir():
+            if (
+                not re.fullmatch(r"[a-f0-9]{32}", folder.name)
+                or folder.is_symlink()
+                or not folder.is_dir()
+            ):
+                continue
+            report_path = folder / "browser.json"
+            if not report_path.is_file():
+                continue
+            try:
+                with report_path.open(encoding="utf-8") as handle:
+                    report = json.load(handle)
+                summary = report["summary"]
+                total = summary["total"]
+                rows = report["streams"]
+                downloads = self.downloads(folder)
+                if (
+                    not rows
+                    or len(rows) != total
+                    or not {"json", "csv"}.issubset(downloads)
+                    or (summary["selected"] and "playlist" not in downloads)
+                ):
+                    continue
+                # Reports written before the shared history have no job metadata.
+                details = report.get("analysis", {})
+                sources = dict.fromkeys(
+                    row.get("source") for row in rows if row.get("source")
+                )
+                self.jobs[folder.name] = {
+                    "id": folder.name,
+                    "state": "completed",
+                    "stage": "Analyse terminée",
+                    "source": details.get("source") or ", ".join(sources) or "Playlist",
+                    "created_at": float(
+                        details.get("created_at", report_path.stat().st_mtime)
+                    ),
+                    "warnings": details.get("warnings", []),
+                    "error": None,
+                    "completed": total,
+                    "total": total,
+                    "working": total - summary["invalid"],
+                    "summary": summary,
+                    "downloads": downloads,
+                }
+            except (OSError, ValueError, KeyError, TypeError, AttributeError):
+                logger.warning("Rapport illisible pour l’analyse %s", folder.name)
+
+    def history(self):
+        with self.lock:
+            return [
+                {
+                    key: job[key]
+                    for key in ("id", "source", "created_at", "state", "total")
+                }
+                for job in sorted(
+                    self.jobs.values(),
+                    key=lambda item: item["created_at"],
+                    reverse=True,
+                )
+                if job["state"] not in ("failed", "cancelled")
+            ]
 
     def prune(self):
         with self.lock:
-            for job_id, job in list(self.jobs.items()):
-                if job["state"] in TERMINAL and (
-                    time.time() - job["created_at"] > 86400 or len(self.jobs) >= 10
-                ):
-                    self.jobs.pop(job_id)
-                    self.events.pop(job_id)
-                    shutil.rmtree(self.directory / job_id, ignore_errors=True)
+            completed = sorted(
+                (j for j in self.jobs.values() if j["state"] == "completed"),
+                key=lambda j: j["created_at"],
+                reverse=True,
+            )
+            expired = {job["id"] for job in completed[10:]}
+            other = sorted(
+                (
+                    j
+                    for j in self.jobs.values()
+                    if j["state"] in ("failed", "cancelled")
+                ),
+                key=lambda j: j["created_at"],
+                reverse=True,
+            )
+            expired.update(
+                j["id"]
+                for i, j in enumerate(other)
+                if i >= 10 or time.time() - j["created_at"] > 86400
+            )
+            for job_id in expired:
+                self.jobs.pop(job_id)
+                self.events.pop(job_id, None)
+                shutil.rmtree(self.directory / job_id, ignore_errors=True)
             for folder in self.directory.iterdir():
                 if (
                     re.fullmatch(r"[a-f0-9]{32}", folder.name)
                     and folder.name not in self.jobs
                     and not folder.is_symlink()
                     and folder.is_dir()
+                    and time.time() - folder.stat().st_mtime > 86400
                 ):
-                    if time.time() - folder.stat().st_mtime > 86400:
-                        shutil.rmtree(folder)
+                    shutil.rmtree(folder, ignore_errors=True)
 
     def create(self, source, options):
         with self.lock:
@@ -271,16 +362,16 @@ class JobManager:
             report = build_report(results, selected, bool(selected))
             for row, entry in zip(report["streams"], results):
                 row.update(playback_metadata(entry))
-            with atomic_text_file(str(folder / "browser.json")) as handle:
-                json.dump(report, handle, ensure_ascii=False)
-            downloads = {
-                key: f"/api/jobs/{job_id}/download/{key}"
-                for key, (name, _) in ARTIFACTS.items()
-                if (folder / name).is_file()
-            }
             with self.lock:
                 if event.is_set():
                     raise CancelledError()
+                report["analysis"] = {
+                    key: self.jobs[job_id][key]
+                    for key in ("source", "created_at", "warnings")
+                }
+                with atomic_text_file(str(folder / "browser.json")) as handle:
+                    json.dump(report, handle, ensure_ascii=False)
+                downloads = self.downloads(folder)
                 self.update(
                     job_id,
                     state="completed",
@@ -288,6 +379,7 @@ class JobManager:
                     summary=report["summary"],
                     downloads=downloads,
                 )
+                self.prune()
         except CancelledError:
             self.update(job_id, state="cancelled", stage="Analyse annulée")
         except Exception as exc:
@@ -309,6 +401,8 @@ def create_app(data_dir=None):
         data_dir or Path.home() / ".cache" / "tv-playlist-cleaner" / "web"
     )
     playbacks = PlaybackPool()
+    television = Television()
+    atexit.register(television.close)
     token = secrets.token_urlsafe(32)
     app.extensions["jobs"] = manager
     atexit.register(manager.close)
@@ -374,6 +468,10 @@ def create_app(data_dir=None):
             ],
             max_size=MAX_PLAYLIST_SIZE,
         )
+
+    @app.get("/api/jobs")
+    def history():
+        return jsonify(jobs=manager.history())
 
     @app.post("/api/jobs")
     def start():
@@ -475,6 +573,29 @@ def create_app(data_dir=None):
     @app.get("/api/playback/<session>/<resource>")
     def relay_media(session, resource):
         return media_response(playbacks.get(session), resource)
+
+    @app.post("/api/television/devices")
+    def cast_devices():
+        try:
+            return jsonify(devices=television.discover())
+        except (OSError, PyChromecastError):
+            abort(503, description="Recherche Chromecast indisponible sur ce réseau.")
+
+    @app.post("/api/jobs/<job_id>/streams/<int:stream_index>/television/<method>")
+    def send_to_tv(job_id, stream_index, method):
+        row = playable_row(job_id, stream_index)
+        try:
+            if method == "airplay":
+                return jsonify(url=television.share(row))
+            if method == "chromecast":
+                device_id = request.form.get("device", "")
+                television.cast(row, device_id)
+                return jsonify(playing=True)
+            abort(404)
+        except ValueError as exc:
+            abort(422, description=str(exc))
+        except (OSError, PyChromecastError):
+            abort(503, description="Connexion au récepteur impossible.")
 
     @app.get("/api/jobs/<job_id>/streams/<int:stream_index>/playlist")
     def stream_playlist(job_id, stream_index):
