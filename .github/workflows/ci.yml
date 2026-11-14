@@ -8,7 +8,8 @@ on:
 
 jobs:
   test:
-    runs-on: ubuntu-latest
+    # setup-python provides the full 3.8–3.11 matrix on this runner image.
+    runs-on: ubuntu-22.04
     permissions:
       contents: read
       id-token: write  # Authenticate the Codecov upload without a stored secret.
