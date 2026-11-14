@@ -37,6 +37,8 @@ from validation_pipeline import (
     validate_entries,
 )
 from .media import LogoCatalog, playback_metadata
+from .metadata import ChannelCatalog
+from .relay import PlaybackPool, media_response
 
 logger = logging.getLogger(__name__)
 DEFAULT_URL = "https://iptv-org.github.io/iptv/countries/fr.m3u"
@@ -106,6 +108,7 @@ class JobManager:
         self.jobs = {}
         self.events = {}
         self.logos = LogoCatalog(self.directory)
+        self.catalog = ChannelCatalog(self.directory)
         self.prune()
 
     def prune(self):
@@ -248,10 +251,14 @@ class JobManager:
             )
             if event.is_set():
                 raise CancelledError()
-            self.update(job_id, stage="Préparation des téléchargements…")
+            self.update(job_id, stage="Chargement des informations des chaînes…")
+            self.catalog.enrich(results)
+            if event.is_set():
+                raise CancelledError()
             self.logos.enrich(results)
             if event.is_set():
                 raise CancelledError()
+            self.update(job_id, stage="Préparation des téléchargements…")
             selected = filter_best_quality(results)
             ok = save_outputs(results, selected, args)
             if selected and not ok:
@@ -301,6 +308,7 @@ def create_app(data_dir=None):
     manager = JobManager(
         data_dir or Path.home() / ".cache" / "tv-playlist-cleaner" / "web"
     )
+    playbacks = PlaybackPool()
     token = secrets.token_urlsafe(32)
     app.extensions["jobs"] = manager
     atexit.register(manager.close)
@@ -333,6 +341,9 @@ def create_app(data_dir=None):
             "media-src 'self' blob: http: https:; worker-src 'self' blob:; "
             "object-src 'none'; base-uri 'none'; frame-ancestors 'none'; form-action 'self'"
         )
+        if request.endpoint == "relay_media":
+            response.headers["Content-Security-Policy"] = "sandbox; default-src 'none'"
+            response.headers["Cross-Origin-Resource-Policy"] = "same-origin"
         response.headers["X-Content-Type-Options"] = "nosniff"
         response.headers["Referrer-Policy"] = "no-referrer"
         response.headers["Cache-Control"] = "no-store"
@@ -435,8 +446,7 @@ def create_app(data_dir=None):
             report = json.load(handle)
         return jsonify(report)
 
-    @app.get("/api/jobs/<job_id>/streams/<int:stream_index>/playlist")
-    def stream_playlist(job_id, stream_index):
+    def playable_row(job_id, stream_index):
         job = manager.snapshot(job_id)
         if not job or job["state"] != "completed":
             abort(404)
@@ -449,6 +459,26 @@ def create_app(data_dir=None):
         row = streams[stream_index - 1]
         if row["status"] == "invalid":
             abort(404)
+        return row
+
+    @app.post("/api/jobs/<job_id>/streams/<int:stream_index>/playback")
+    def start_playback(job_id, stream_index):
+        row = playable_row(job_id, stream_index)
+        try:
+            return jsonify(url=playbacks.create(row))
+        except ValueError:
+            abort(
+                422,
+                description="Ces réglages de lecture nécessitent VLC. Téléchargez le M3U.",
+            )
+
+    @app.get("/api/playback/<session>/<resource>")
+    def relay_media(session, resource):
+        return media_response(playbacks.get(session), resource)
+
+    @app.get("/api/jobs/<job_id>/streams/<int:stream_index>/playlist")
+    def stream_playlist(job_id, stream_index):
+        row = playable_row(job_id, stream_index)
         lines = ["#EXTM3U", row["info"]]
         if row["directives"]:
             lines.append(row["directives"])

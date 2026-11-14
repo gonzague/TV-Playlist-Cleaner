@@ -31,7 +31,7 @@ dependencies = [
 ]
 
 [project.optional-dependencies]
-web = ["flask>=3.0,<4", "waitress>=2.1,<4"]
+web = ["babel>=2.12,<3", "flask>=3.0,<4", "waitress>=2.1,<4"]
 dev = [
     "pytest>=6.0",
     "pytest-cov>=2.0",

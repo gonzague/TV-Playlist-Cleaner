@@ -12,7 +12,6 @@ import requests
 from playlist_utils import stream_request
 from validation_pipeline import atomic_text_file
 
-LOGOS_URL = "https://iptv-org.github.io/api/logos.json"
 logger = logging.getLogger(__name__)
 
 
@@ -38,18 +37,19 @@ def attribute(info, name):
     return match.group(1) if match else ""
 
 
-class LogoCatalog:
+class CachedCatalog:
     """Single-job caller; 24h disk cache, stale fallback, 5min failure cooldown."""
 
-    def __init__(self, directory):
-        self.path = Path(directory) / "logos.json"
+    def __init__(self, directory, name):
+        self.name = name
+        self.path = Path(directory) / f"{name}.json"
         self.retry_at = 0
         self.data = []
         self.updated = 0
         try:
             cached = json.loads(self.path.read_text(encoding="utf-8"))
-            if isinstance(cached.get("logos"), list):
-                self.data = cached["logos"]
+            if isinstance(cached.get(name), list):
+                self.data = cached[name]
                 self.updated = float(cached["updated"])
         except (OSError, ValueError, KeyError, TypeError, AttributeError):
             pass
@@ -60,26 +60,32 @@ class LogoCatalog:
             return self.data
         self.retry_at = now + 300
         try:
-            with requests.get(LOGOS_URL, timeout=(4, 8), stream=True) as response:
+            url = f"https://iptv-org.github.io/api/{self.name}.json"
+            with requests.get(url, timeout=(4, 8), stream=True) as response:
                 response.raise_for_status()
                 payload = bytearray()
                 for chunk in response.iter_content(65536):
                     payload.extend(chunk)
                     if len(payload) > 20 * 1024 * 1024 or time.time() - now > 15:
-                        raise ValueError("Logo catalog limit exceeded")
+                        raise ValueError("Catalog limit exceeded")
             data = json.loads(payload)
             if not isinstance(data, list) or not all(
                 isinstance(item, dict) for item in data
             ):
-                raise ValueError("Invalid logo catalog")
+                raise ValueError("Invalid catalog")
             self.data, self.updated = data, now
             with atomic_text_file(str(self.path)) as handle:
-                json.dump({"updated": now, "logos": data}, handle)
+                json.dump({"updated": now, self.name: data}, handle)
         except (requests.RequestException, OSError, ValueError):
             logger.warning(
-                "Catalogue des logos indisponible; conservation du cache existant."
+                "Catalogue %s indisponible. Utilisation du cache existant.", self.name
             )
         return self.data
+
+
+class LogoCatalog(CachedCatalog):
+    def __init__(self, directory):
+        super().__init__(directory, "logos")
 
     def enrich(self, entries):
         missing = any(

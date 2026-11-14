@@ -214,7 +214,7 @@ function stopPlayer() {
   updateCurrentCard();
 }
 
-function playChannel(row) {
+async function playChannel(row) {
   stopPlayer();
   const generation = player.generation;
   player.row = row;
@@ -227,7 +227,8 @@ function playChannel(row) {
   show("player-panel", true);
   show("channel-video", true);
   $("player-panel").scrollIntoView({ behavior: "smooth", block: "nearest" });
-  const url = safeMediaUrl(row.playback_url);
+  const sourceUrl = safeMediaUrl(row.playback_url);
+  let url = sourceUrl;
   const fail = (message) => {
     if (generation !== player.generation) return;
     clearTimeout(player.timer);
@@ -238,9 +239,14 @@ function playChannel(row) {
     text("player-status", message);
   };
   if (row.needs_headers) {
-    show("channel-video", false);
-    text("player-status", "Ce flux nécessite des en-têtes spécifiques. Téléchargez le M3U pour le lire dans VLC en conservant ses réglages.");
-    return;
+    text("player-status", "Connexion avec les en-têtes de la playlist…");
+    try {
+      const session = await api(`/api/jobs/${state.job}/streams/${row.index}/playback`, { method: "POST" });
+      if (generation !== player.generation) return;
+      url = session.url;
+    } catch (error) {
+      fail(error.message); return;
+    }
   }
   if (!url) { fail("Ce format d’adresse ne peut pas être lu dans le navigateur. Essayez avec VLC."); return; }
   text("player-status", "Connexion au flux…");
@@ -266,7 +272,7 @@ function playChannel(row) {
       } else { fail("Ce flux ne peut pas être lu ici. Essayez avec VLC."); }
     });
   };
-  const isFile = /\.(mp4|m4v|webm|ogv|mp3|m4a|ogg)(?:$|[?#])/i.test(url);
+  const isFile = /\.(mp4|m4v|webm|ogv|mp3|m4a|ogg)(?:$|[?#])/i.test(sourceUrl);
   if (!isFile && !video.canPlayType("application/vnd.apple.mpegurl") && window.Hls?.isSupported()) {
     const hls = new Hls({ maxBufferLength: 20, backBufferLength: 30 });
     player.hls = hls;
@@ -308,7 +314,28 @@ function renderCompleted(job) {
     link.setAttribute("download", "");
     $("downloads").append(link);
   }
+  populateMetadataFilters();
   renderChannels();
+}
+
+const metadataFields = ["countries", "languages", "categories"];
+const unknownValue = "__unknown__";
+
+function populateMetadataFilters() {
+  for (const field of metadataFields) {
+    const select = $(field + "-filter");
+    const choices = new Set();
+    let missing = false;
+    for (const row of state.rows) {
+      const values = row.metadata?.[field] || [];
+      if (!values.length) missing = true;
+      for (const value of values) choices.add(value);
+    }
+    const ordered = [...choices].sort((a, b) => a.localeCompare(b, "fr"));
+    select.replaceChildren(select.options[0], ...ordered.map(value => new Option(value, value)));
+    if (missing) select.add(new Option("Non renseigné", unknownValue));
+    select.selectedIndex = 0;
+  }
 }
 
 function updateCurrentCard() {
@@ -324,7 +351,16 @@ function updateCurrentCard() {
 function renderChannels() {
   const search = $("search").value.trim().toLocaleLowerCase("fr");
   const status = $("status-filter").value;
-  const rows = state.rows.filter((row) => (status === "all" || row.status === status) && String(row.name).toLocaleLowerCase("fr").includes(search));
+  const filters = metadataFields.map(field => [field, $(field + "-filter").value]);
+  const rows = state.rows.filter(row => {
+    if (status !== "all" && row.status !== status) return false;
+    if (!String(row.name).toLocaleLowerCase("fr").includes(search)) return false;
+    return filters.every(([field, wanted]) => {
+      if (!wanted) return true;
+      const values = row.metadata?.[field] || [];
+      return wanted === unknownValue ? !values.length : values.includes(wanted);
+    });
+  });
   const pageSize = 24;
   const pages = Math.max(1, Math.ceil(rows.length / pageSize));
   state.page = Math.min(state.page, pages - 1);
@@ -344,6 +380,18 @@ function renderChannels() {
     const description = row.error || (row.reason === "duplicate" ? "Flux en double" : row.reason === "lower_quality" ? "Une meilleure version a été conservée" : "");
     card.title = [row.name, description].filter(Boolean).join(" — ");
     card.append(badges, channelLogo(row), element("span", "channel-name", row.name));
+    if (row.metadata) {
+      const details = metadataFields.map(field => (row.metadata[field] || []).join(", "));
+      const info = element("span", "channel-metadata", details.filter(Boolean).join(" · ") || "Non renseigné");
+      const origins = { "iptv-org": "iptv-org", m3u: "playlist importée" };
+      const labels = { countries: "Pays", languages: "Langue", categories: "Catégorie" };
+      info.title = metadataFields.map((field, index) => {
+        const source = origins[row.metadata.sources?.[field]];
+        return labels[field] + " : " + (details[index] || "Non renseigné") + (source ? " (" + source + ")" : "");
+      }).join("\n");
+      if (row.metadata.groups?.length) info.title += "\nGroupe M3U : " + row.metadata.groups.join(", ");
+      card.append(info);
+    }
     if (description) card.append(element("span", "channel-detail", description));
     card.append(element("span", "card-action", card.disabled ? "Indisponible" : "▶ Lire"));
     card.addEventListener("click", () => playChannel(row));
@@ -383,7 +431,7 @@ $("cancel-button").addEventListener("click", async () => {
   try { await api(`/api/jobs/${state.job}/cancel`, {method:"POST"}); await poll(); }
   catch (error) { notice("result-message", error.message, "error"); $("cancel-button").disabled = false; }
 });
-for (const id of ["search", "status-filter"]) $(id).addEventListener(id === "search" ? "input" : "change", () => { state.page = 0; renderChannels(); });
+for (const id of ["search", "status-filter", ...metadataFields.map(field => field + "-filter")]) $(id).addEventListener(id === "search" ? "input" : "change", () => { state.page = 0; renderChannels(); });
 $("previous-page").addEventListener("click", () => { state.page--; renderChannels(); });
 $("next-page").addEventListener("click", () => { state.page++; renderChannels(); });
 for (const name of ["dragenter", "dragover"]) $("dropzone").addEventListener(name, (event) => { event.preventDefault(); $("dropzone").classList.add("dragging"); });

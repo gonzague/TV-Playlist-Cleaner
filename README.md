@@ -144,6 +144,12 @@ ffprobe, sélection de la qualité, en-têtes VLC/Kodi, nouvelles tentatives et 
   accès au clavier (Entrée/Espace), recherche, filtres et pagination.
 - Lecteur vidéo intégré sur les flux valides (HLS, MP4 et formats natifs du navigateur),
   changement de chaîne, arrêt et téléchargement individuel pour VLC.
+- Filtres combinables par pays d’émission, langue et catégorie. La fiche de la chaîne
+  fournit pays et catégories, l’édition exacte (`tvg-id="Chaîne@Édition"`) fournit
+  les langues. À défaut, les attributs M3U reconnus sont utilisés. Les groupes
+  personnels restent visibles dans le détail des métadonnées. Le rapport JSON indique
+  la provenance par champ et les exports M3U complètent les attributs absents.
+  Les catalogues sont mis en cache 24 heures et réutilisés en cas de panne.
 - Logos `tvg-logo` de la playlist ; complément via [iptv-org](https://github.com/iptv-org/api#logos)
   par identifiant `tvg-id` exact (chaîne et feed), avec cache local de 24 heures.
   Les logos retrouvés sont également ajoutés au M3U exporté.
@@ -156,13 +162,15 @@ le cache existant et les logos de la playlist restent utilisables. Les requêtes
 les flux partent de la machine où le serveur Python tourne. Installer FFmpeg pour
 le mode d'analyse complète ; si seul curl est disponible, le mode rapide est proposé.
 
-La lecture se fait directement depuis le navigateur, au clic sur **Lire**. Un flux
-validé par curl/ffprobe peut rester illisible dans le navigateur : CORS, codec,
-géoblocage ou authentification du diffuseur. Les flux avec en-têtes VLC/Kodi
-spécifiques sont proposés en téléchargement M3U, ces en-têtes n'étant pas
-reproductibles de manière fiable dans une vidéo HTML. Aucun proxy vidéo,
-transcodage ou contournement de DRM n'est ajouté. Les logos sont chargés depuis
-leur hébergeur ; une image absente affiche les initiales de la chaîne.
+Le lecteur contacte directement le diffuseur pour les flux ordinaires. Quand une
+playlist fournit des en-têtes VLC/Kodi, le serveur local les applique à la lecture
+du média, aux variantes HLS, aux segments et aux clés de la même origine. Le relais
+prend en charge `User-Agent`, `Referer`, `Origin`, `Cookie`, `Authorization`,
+`Accept`, `Accept-Language` et les en-têtes `X-*`. Les lectures de fichiers gèrent
+les requêtes partielles (HTTP Range). Un changement de domaine, de port ou de
+protocole dans le flux relayé nécessite VLC. Le téléchargement individuel conserve
+les réglages d’origine. La compatibilité du codec et les droits d’accès du diffuseur
+restent nécessaires. Les logos sont chargés depuis leur hébergeur.
 
 HLS.js **1.7.4** est distribué localement avec sa licence Apache-2.0 dans
 `playlist_web/static/vendor` (source : paquet npm `hls.js@1.7.4`, fichiers

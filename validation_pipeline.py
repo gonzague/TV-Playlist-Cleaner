@@ -339,6 +339,8 @@ def build_report(results, selected, output_written=False, output_error=None):
             )
         row = {key: result.get(key, "") for key in REPORT_FIELDS}
         row.update(index=index, status=status, reason=reason)
+        if "metadata" in result:
+            row["metadata"] = result["metadata"]
         rows.append(row)
     summary = {
         status: sum(row["status"] == status for row in rows)
@@ -393,6 +395,7 @@ def save_outputs(results, selected, args):
                                 else value
                             )
                             for key, value in row.items()
+                            if key in REPORT_FIELDS
                         }
                         writer.writerow(safe)
             logger.info("Rapport %s enregistré : %s", kind.upper(), path)

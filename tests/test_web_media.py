@@ -144,12 +144,27 @@ def test_results_and_individual_m3u_include_logo_and_headers(client):
             "url": "https://example.org/logo.png",
         }
     ]
-    with patch("playlist_web.check_stream_with_curl", side_effect=working), patch(
+    catalogs = client.application.extensions["jobs"].catalog
+    channels = [{"id": "News.fr", "country": "FR", "categories": ["news"]}]
+    feeds = [{"channel": "News.fr", "id": "French", "languages": ["fra"]}]
+    with patch.object(catalogs.channels, "load", return_value=channels), patch.object(
+        catalogs.feeds, "load", return_value=feeds
+    ), patch("playlist_web.check_stream_with_curl", side_effect=working), patch(
         "playlist_web.media.LogoCatalog.load", return_value=logos
     ):
         job = finished(client, upload(client, playlist).json["id"])
     assert job["state"] == "completed"
     row = client.get(f"/api/jobs/{job['id']}/results").json["streams"][0]
+    assert row["metadata"]["languages"] == ["français"]
+    report = client.get(job["downloads"]["json"]).json
+    assert row["metadata"] == report["streams"][0]["metadata"]
+    for url in (
+        job["downloads"]["playlist"],
+        f"/api/jobs/{job['id']}/streams/1/playlist",
+    ):
+        content = client.get(url).text
+        for tag in ('tvg-country="FR"', 'tvg-language="fr"', 'group-title="news"'):
+            assert tag in content
     assert row["logo"] == "https://example.org/logo.png"
     assert row["needs_headers"] and row["channel_id"] == "News.fr@French"
     path = f"/api/jobs/{job['id']}/streams/1/playlist"

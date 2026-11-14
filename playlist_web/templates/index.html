@@ -101,6 +101,11 @@
             <p class="hint">La lecture dépend du format et des autorisations du diffuseur. Si elle échoue, ouvrez le fichier M3U dans VLC.</p>
           </section>
           <div class="results-tools"><label class="sr-only" for="search">Rechercher une chaîne</label><input id="search" type="search" placeholder="Rechercher une chaîne…" autocomplete="off"><label class="sr-only" for="status-filter">Filtrer les résultats</label><select id="status-filter"><option value="all">Tous les flux</option><option value="selected">Conservés</option><option value="invalid">Invalides</option><option value="discarded">Écartés</option></select></div>
+          <div class="metadata-filters">
+            <label>Pays d’émission<select id="countries-filter"><option value="">Tous les pays</option></select></label>
+            <label>Langue<select id="languages-filter"><option value="">Toutes les langues</option></select></label>
+            <label>Catégorie<select id="categories-filter"><option value="">Toutes les catégories</option></select></label>
+          </div>
           <ul class="channel-grid" id="channel-grid" aria-label="Chaînes de la playlist"></ul>
           <p class="hint logo-credit">Logos de la playlist et du <a href="https://github.com/iptv-org/api#logos" target="_blank" rel="noopener noreferrer">catalogue iptv-org</a>.</p>
           <p id="no-matches" class="hint" hidden>Aucun flux ne correspond à votre recherche.</p>
